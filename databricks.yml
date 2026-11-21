@@ -1,0 +1,14 @@
+bundle:
+  name: virtue-foundation-india-healthcare-datathon
+
+include:
+  - resources/*.yml
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://dbc-92f895df-b358.cloud.databricks.com
+      root_path: /Workspace/Datathon-2026-Shared/${bundle.name}/${workspace.current_user.short_name}
+

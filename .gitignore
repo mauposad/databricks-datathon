@@ -211,6 +211,9 @@ tempCodeRunnerFile.py
 # Ruff stuff:
 .ruff_cache/
 
+# Databricks Asset Bundles local deployment state
+.databricks/
+
 # PyPI configuration file
 .pypirc
 
