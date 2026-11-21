@@ -14,6 +14,8 @@ from ..schema import (Confidence, Evidence, Origin, Query, RecommendResponse, Re
 from .base import Adapter
 
 CONFIDENCE_RULE = ("High: trust ≥ 70 with strong/moderate evidence · Medium: trust 45–69 · Low: trust < 45 · "
+                   "capped at Medium when the record's identity is not settled (possible merged record, near-duplicate "
+                   "record nearby, or coordinates and PIN code disagree with nothing to settle it) · "
                    "Probable: the procedure is not named, but a large or teaching hospital lists the specialty (call to confirm) · "
                    "Unconfirmed: only weak evidence (a related specialty or a passing mention in the description)")
 
@@ -41,14 +43,14 @@ def _cached(key: str, ttl: float, fn):
     return val
 
 
-def confidence_for(trust: float, tier: str | None) -> str:
+def confidence_for(trust: float, tier: str | None, identity_conflict: bool = False) -> str:
     if tier == "weak":
         return "Unconfirmed"
     if tier == "probable":
         return "Probable"
-    if trust >= 70:
+    if trust >= 70 and not identity_conflict:
         return "High"
-    if trust >= 45:
+    if trust >= 45:  # includes trust >= 70 capped by an identity conflict
         return "Medium"
     return "Low"
 
@@ -82,13 +84,17 @@ def _tags(r: dict) -> list[str]:
         tags.append("Farther option")
     if r.get("is_nearest_alternative"):
         tags.append("Nearest option")
+    if r.get("possible_duplicate_names"):
+        tags.append("Possible duplicate record")
+    if r.get("identity_conflict"):
+        tags.append("Identity not settled")
     return tags
 
 
 QUALITY_PARTS = [  # (column, label, max)
     ("q_evidence", "Evidence for this service", 50),
     ("q_facility_type", "Facility type", 10), ("q_beds", "Beds", 10), ("q_support", "Supporting services", 10),
-    ("q_sources", "Independent sources", 8), ("q_location", "Location certainty", 8), ("q_coherence", "Record coherence", 4),
+    ("q_sources", "Independent sources", 8), ("q_location", "Location certainty", 6), ("q_coherence", "Record coherence", 6),
 ]
 PENALTIES = [("pen_merged", "Possible merged record"), ("pen_facility_type", "Not a hospital"),
              ("pen_negated", "Negative/referral mention"), ("pen_numbers", "Implausible numbers")]
@@ -128,7 +134,8 @@ def to_recommendation(r: dict) -> Recommendation:
         pincode=r.get("pincode"), phone=r.get("phone"), website=r.get("website"), facebook=r.get("facebook"),
         email=r.get("email"), lat=r.get("lat"), lon=r.get("lon"), distance_km=r.get("distance_km"),
         facility_type=r.get("facility_type"), operator_type=r.get("operator_type"),
-        confidence=Confidence(label=confidence_for(trust, tier), score=trust, tier=tier, rule=CONFIDENCE_RULE),
+        confidence=Confidence(label=confidence_for(trust, tier, bool(r.get("identity_conflict"))), score=trust, tier=tier,
+                              rule=CONFIDENCE_RULE),
         score=_score(r), tags=_tags(r), evidence=_evidence(r),
         rejected_evidence=r.get("negated_or_referral_mentions") or [],
         match_pattern=r.get("match_pattern"), caveats=r.get("caveats") or [],

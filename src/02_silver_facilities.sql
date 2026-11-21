@@ -49,6 +49,34 @@ END;
 
 -- COMMAND ----------
 
+-- Does the phrase name a *different* hospital/clinic than the facility itself? ("referred to Cloudnine Hospital ...")
+-- Takes the distinctive words of each "<Proper Name> Hospital/Clinic/Institute" in the phrase (4+ letters, not
+-- generic or department words like "care", "super", "cancer", "sports injury") and calls it another facility only if
+-- none of them appears in the facility's own name, allowing spelling variants (Ayush ~ Aayush, Sriram ~ Sri Ram).
+CREATE OR REPLACE FUNCTION workspace.datathon.mentions_other_facility(phrase STRING, own_name STRING)
+RETURNS BOOLEAN
+RETURN exists(
+  regexp_extract_all(phrase, '((?:[A-Z][A-Za-z.&\']+ ){1,4})(?:Hospitals?|Clinic|Medical College|Institute|Nursing Home|Healthcare|Medical Centre|Medical Center)', 1),
+  c -> size(filter(split(lower(c), '[^a-z]+'), w -> length(w) >= 4 AND w NOT IN
+          ('super', 'speciality', 'specialty', 'specialities', 'multi', 'multispeciality', 'care', 'city', 'general', 'government',
+           'district', 'civil', 'memorial', 'medical', 'research', 'centre', 'center', 'private', 'limited', 'india', 'indian',
+           'national', 'this', 'their', 'with', 'from', 'other', 'nearby', 'local', 'major', 'leading', 'children', 'women',
+           'mother', 'trust', 'teaching', 'advanced', 'charitable', 'cancer', 'oncology', 'neuro', 'heart', 'cardiac',
+           'cardiothoracic', 'kidney', 'pain', 'fertility', 'sports', 'injury', 'cornea', 'retina', 'baby', 'well', 'robotic',
+           'orthopaedic', 'orthopedic', 'ortho', 'surgery', 'surgical', 'spine', 'trauma', 'dialysis', 'diabetes', 'skin',
+           'dental', 'maternity', 'child', 'eye', 'vision', 'chest', 'top', 'best', 'list', 'listed', 'among', 'cataract',
+           'failure', 'health', 'check', 'wellness', 'joint', 'replacement', 'breast', 'stroke', 'sleep', 'liver', 'gastro', 'lung',
+           'bone', 'hand', 'neurosurgery', 'neurology', 'hospitals', 'clinics', 'international', 'ayushman', 'card',
+           'empanelled', 'certified', 'aesthetic', 'infertility', 'gynecology', 'gynaecology', 'obstetrics', 'pediatric',
+           'paediatric', 'neonatal', 'provides', 'expert', 'tertiary', 'bedded', 'personalised', 'specialized',
+           'specialised', 'page', 'polyclinic', 'nursing', 'home', 'government', 'municipal', 'primary', 'community'))) > 0
+   AND NOT exists(
+          filter(split(lower(c), '[^a-z]+'), w -> length(w) >= 4),
+          w -> contains(regexp_replace(lower(own_name), '[^a-z]', ''), w)
+            OR exists(split(lower(own_name), '[^a-z]+'), o -> length(o) >= 4 AND levenshtein(o, w) <= 1)));
+
+-- COMMAND ----------
+
 -- State alias lookup. `in_text` = safe to search for inside free text (full names only, no 2-letter codes).
 CREATE OR REPLACE TABLE workspace.datathon.ref_state_aliases
 COMMENT 'Maps messy state spellings to canonical state names (canonical = India Post spelling)'
@@ -284,6 +312,7 @@ SELECT
   -- resolved location
   f.lat, f.lon, f.district, f.state, f.pincode,
   f.location_source, f.location_confidence, f.location_check, f.location_note,
+  f.city_supports_coords, f.city_supports_pin,
   round(f.km_coords_to_pin, 1)                       AS km_coords_to_pin,
   f.pin_district, f.pin_state, f.pin_n_districts, f.coords_district, f.coords_state, f.claimed_state,
   f.city_raw, f.state_raw, f.postcode_raw, f.address_text, f.lat_raw, f.lon_raw,
@@ -344,6 +373,177 @@ SELECT * EXCEPT (quality_flags_base),
     CASE WHEN n_source_domains <= 1 THEN 'single_source' END
   ))) AS quality_flags
 FROM workspace.datathon.silver_facilities;
+
+-- COMMAND ----------
+
+-- MAGIC %md
+-- MAGIC ## Record coherence: does the record describe one facility, in one place?
+-- MAGIC
+-- MAGIC * `silver_possible_duplicates`: pairs of *different* records within 3 km whose normalised names (without
+-- MAGIC   "hospital", "clinic", "pvt", "ltd", punctuation, ...) are identical, or differ by 1 letter (8+ letters) or
+-- MAGIC   2 letters (12+ letters). Flagged, never merged.
+-- MAGIC * `silver_identity_claims`: every claim a record makes about *who and where* it is (coordinates, PIN code, city,
+-- MAGIC   state, "located in" places, other hospitals named in its description, near-duplicate neighbours), each marked
+-- MAGIC   as agreeing or not with the resolved location.
+-- MAGIC * `record_coherence_score` (0–100) = 100 minus named deductions, each its own `coh_*` column:
+-- MAGIC
+-- MAGIC | component | deduction | when |
+-- MAGIC |---|---|---|
+-- MAGIC | `coh_coords_pin` | −25 / −10 | coordinates are > 75 km / 25–75 km from the stated PIN code |
+-- MAGIC | `coh_city` | −10 | the city text matches neither the resolved PIN area nor its district |
+-- MAGIC | `coh_state` | −15 | the record's own state field names a different state |
+-- MAGIC | `coh_located_in` | −20 | the text says it is located in a district > 100 km away |
+-- MAGIC | `coh_other_facility` | −10 | the description names a different hospital or clinic |
+-- MAGIC | `coh_duplicate` | −10 | a near-duplicate record sits nearby |
+-- MAGIC
+-- MAGIC Missing information is not a conflict and costs nothing. **`identity_conflict`** (possible merged record, a
+-- MAGIC near-duplicate, or a coordinates/PIN conflict nothing could settle) caps the confidence label at Medium.
+
+-- COMMAND ----------
+
+CREATE OR REPLACE FUNCTION workspace.datathon.norm_facility_name(s STRING)
+RETURNS STRING
+RETURN trim(regexp_replace(regexp_replace(lower(s),
+  '\\b(hospitals?|clinics?|nursing home|pvt|private|ltd|limited|the|and|multi ?-?speciality|multi ?-?specialty|super ?-?speciality|super ?-?specialty|speciality|specialty|centre|center|medical|research|institute|healthcare|health care|care|dr|dental|dentist|eye|child|children|heart|ortho|orthopaedic|orthopedic|maternity|polyclinic|diagnostics?|college|general|memorial|trust)\\b|[^a-z ]', ' '),
+  '\\s+', ' '));
+
+-- COMMAND ----------
+
+CREATE OR REPLACE TABLE workspace.datathon.silver_possible_duplicates
+COMMENT 'Pairs of different facility records that look like the same facility (near-identical normalised names, within 3 km or same PIN). Flagged, never merged.'
+AS
+WITH f AS (
+  SELECT facility_id, name, pincode, lat, lon,
+         -- distinctive part of the name: no generic words, no city name ("The Dental Hub Ahmedabad" -> "hub")
+         trim(regexp_replace(workspace.datathon.norm_facility_name(name),
+              concat('\\b(', coalesce(nullif(workspace.datathon.norm_place(city_raw), ''), '#'), ')\\b'), '')) AS nname,
+         -- focus words must match: "Verma Hospital" and "Verma Dental Clinic" are not the same facility
+         filter(array('dental', 'eye', 'child', 'heart', 'ortho', 'maternity', 'cancer', 'ivf'), w -> lower(name) RLIKE w) AS focus,
+         CAST(floor(lat) AS INT) AS clat, CAST(floor(lon) AS INT) AS clon
+  FROM workspace.datathon.silver_facilities
+  WHERE lat IS NOT NULL
+),
+cells AS (  -- each facility in its own and the 8 neighbouring 1-degree cells, so pairs across a cell edge are found
+  SELECT f.*, clat + dx AS nlat, clon + dy AS nlon
+  FROM f CROSS JOIN (SELECT explode(sequence(-1, 1)) AS dx) CROSS JOIN (SELECT explode(sequence(-1, 1)) AS dy)
+)
+SELECT a.facility_id, b.facility_id AS duplicate_id, b.name AS duplicate_name,
+       round(workspace.datathon.haversine_km(a.lat, a.lon, b.lat, b.lon), 2) AS km_apart,
+       levenshtein(a.nname, b.nname) AS name_edit_distance
+FROM f a
+JOIN cells b ON b.nlat = a.clat AND b.nlon = a.clon AND b.facility_id <> a.facility_id
+WHERE length(a.nname) >= 5 AND a.focus = b.focus
+  -- short names must match exactly ("yadav dental" vs "madhav dental" is two edits but a different clinic)
+  AND levenshtein(a.nname, b.nname) <= CASE WHEN length(a.nname) >= 12 THEN 2 WHEN length(a.nname) >= 8 THEN 1 ELSE 0 END
+  AND workspace.datathon.haversine_km(a.lat, a.lon, b.lat, b.lon) <= 3;
+
+-- COMMAND ----------
+
+-- Which city names are used for which districts? Learned from records whose coordinates and PIN code agree, so that
+-- "Bangalore" in Bengaluru Urban or "Kochi" in Ernakulam are not counted as conflicts (3+ such records needed).
+CREATE OR REPLACE TABLE workspace.datathon.ref_city_districts
+COMMENT 'City spellings seen for each district, learned from facilities whose coordinates and PIN code agree (3+ facilities)'
+AS
+SELECT upper(trim(city_raw)) AS city, district, state, count(*) AS n_facilities
+FROM workspace.datathon.silver_facilities
+WHERE location_check = 'agree' AND length(trim(city_raw)) >= 3 AND district IS NOT NULL
+GROUP BY ALL
+HAVING count(*) >= 3;
+
+-- COMMAND ----------
+
+CREATE OR REPLACE TABLE workspace.datathon.silver_identity_claims
+COMMENT 'Every claim a record makes about who and where it is, and whether it agrees with the resolved location'
+AS
+SELECT facility_id, 'coordinates' AS claim_type, concat(CAST(round(lat_raw, 5) AS STRING), ',', CAST(round(lon_raw, 5) AS STRING)) AS claim_value,
+       'latitude/longitude' AS source_field,
+       workspace.datathon.haversine_km(lat_raw, lon_raw, lat, lon) <= 25 AS agrees_with_location
+FROM workspace.datathon.silver_facilities WHERE lat_raw IS NOT NULL
+UNION ALL
+SELECT facility_id, 'pin_code', CAST(pincode AS STRING), 'address_zipOrPostcode',
+       CASE WHEN pin_district IS NULL THEN NULL WHEN location_source = 'pin_centroid' THEN true ELSE km_coords_to_pin <= 25 END
+FROM workspace.datathon.silver_facilities WHERE pincode IS NOT NULL
+UNION ALL
+SELECT s.facility_id, 'city', s.city_raw, 'address_city',
+       coalesce(CASE WHEN s.location_source = 'coordinates' THEN s.city_supports_coords ELSE s.city_supports_pin END, false)
+         OR rc.city IS NOT NULL
+         OR coalesce(workspace.datathon.city_matches(s.city_raw, array(upper(s.district))), false)
+FROM workspace.datathon.silver_facilities s
+LEFT JOIN workspace.datathon.ref_city_districts rc ON rc.city = upper(trim(s.city_raw)) AND rc.district = s.district
+WHERE length(trim(s.city_raw)) >= 3
+UNION ALL
+SELECT facility_id, 'state', state_raw, 'address_stateOrRegion', claimed_state = state
+FROM workspace.datathon.silver_facilities WHERE claimed_state IS NOT NULL
+UNION ALL
+SELECT facility_id, 'located_in_text', place, 'capability/description', false
+FROM workspace.datathon.silver_facilities LATERAL VIEW explode(far_places_in_text) t AS place
+UNION ALL
+-- another facility named in the description: only names that match a real facility in the dataset (so department
+-- names like "Dentistry Clinic" don't count), and not the facility's own name
+SELECT DISTINCT o.facility_id, 'other_facility_named', o.sentence, 'description', false
+FROM (
+  SELECT s.facility_id, s.name, trim(sentence) AS sentence,
+         workspace.datathon.norm_facility_name(cand) AS ncand
+  FROM workspace.datathon.silver_facilities s
+  LATERAL VIEW explode(split(coalesce(s.description, ''), '\\.(\\s|$)')) t AS sentence
+  LATERAL VIEW explode(regexp_extract_all(sentence,
+    '((?:[A-Z][A-Za-z.&\']+ ){1,4})(?:Hospitals?|Clinic|Medical College|Institute|Nursing Home|Healthcare|Medical Centre|Medical Center)', 1)) u AS cand
+  WHERE workspace.datathon.mentions_other_facility(sentence, s.name)
+) o
+JOIN (SELECT DISTINCT workspace.datathon.norm_facility_name(name) AS n FROM workspace.datathon.silver_facilities) k
+  ON k.n = o.ncand AND length(o.ncand) >= 5 AND o.ncand <> workspace.datathon.norm_facility_name(o.name)
+UNION ALL
+SELECT facility_id, 'possible_duplicate', concat(duplicate_name, ' (', CAST(km_apart AS STRING), ' km away)'), 'name', false
+FROM workspace.datathon.silver_possible_duplicates;
+
+-- COMMAND ----------
+
+CREATE OR REPLACE TABLE workspace.datathon.silver_facilities
+COMMENT 'Silver: one row per facility (deduplicated on cluster_id), parsed claim arrays kept for citation, resolved location with confidence, data-quality flags, and a record coherence score with named components'
+AS
+WITH dup AS (
+  SELECT facility_id, collect_set(duplicate_id) AS possible_duplicate_of, collect_set(duplicate_name) AS possible_duplicate_names
+  FROM workspace.datathon.silver_possible_duplicates GROUP BY facility_id
+),
+other AS (
+  SELECT facility_id, collect_list(claim_value) AS other_facilities_named
+  FROM workspace.datathon.silver_identity_claims WHERE claim_type = 'other_facility_named' GROUP BY facility_id
+),
+c AS (
+  SELECT s.*,
+    coalesce(dup.possible_duplicate_of, array()) AS possible_duplicate_of,
+    coalesce(dup.possible_duplicate_names, array()) AS possible_duplicate_names,
+    coalesce(other.other_facilities_named, array()) AS other_facilities_named,
+    CASE location_check WHEN 'conflict' THEN -25 WHEN 'near' THEN -10 ELSE 0 END AS coh_coords_pin,
+    CASE WHEN length(trim(s.city_raw)) >= 3
+          AND NOT coalesce(CASE WHEN s.location_source = 'coordinates' THEN s.city_supports_coords ELSE s.city_supports_pin END, false)
+          AND rc.city IS NULL
+          AND NOT coalesce(workspace.datathon.city_matches(s.city_raw, array(upper(s.district))), false)
+         THEN -10 ELSE 0 END AS coh_city,
+    CASE WHEN claimed_state IS NOT NULL AND state IS NOT NULL AND claimed_state <> state THEN -15 ELSE 0 END AS coh_state,
+    CASE WHEN size(far_places_in_text) > 0 THEN -20 ELSE 0 END AS coh_located_in,
+    CASE WHEN other.facility_id IS NOT NULL THEN -10 ELSE 0 END AS coh_other_facility,
+    CASE WHEN dup.facility_id IS NOT NULL THEN -10 ELSE 0 END AS coh_duplicate
+  FROM workspace.datathon.silver_facilities s
+  LEFT JOIN dup USING (facility_id)
+  LEFT JOIN other USING (facility_id)
+  LEFT JOIN (SELECT city, district AS rc_district FROM workspace.datathon.ref_city_districts) rc
+         ON rc.city = upper(trim(s.city_raw)) AND rc.rc_district = s.district
+)
+SELECT * EXCEPT (quality_flags),
+  100 + coh_coords_pin + coh_city + coh_state + coh_located_in + coh_other_facility + coh_duplicate AS record_coherence_score,
+  (possible_merged_record OR size(possible_duplicate_of) > 0 OR (location_check = 'conflict' AND location_confidence = 'low')) AS identity_conflict,
+  concat_ws('; ',
+    CASE WHEN possible_merged_record THEN concat('the record says it is located in ', array_join(far_places_in_text, ', ')) END,
+    CASE WHEN size(possible_duplicate_of) > 0 THEN concat('a near-duplicate record is nearby (', array_join(possible_duplicate_names, ', '), ')') END,
+    CASE WHEN location_check = 'conflict' AND location_confidence = 'low' THEN 'coordinates and PIN code disagree and nothing settles which is right' END
+  ) AS identity_conflict_reason,
+  array_compact(concat(quality_flags, array(
+    CASE WHEN size(possible_duplicate_of) > 0 THEN 'possible_duplicate' END,
+    CASE WHEN coh_city < 0 THEN 'city_text_disagrees' END,
+    CASE WHEN coh_other_facility < 0 THEN 'other_facility_named' END
+  ))) AS quality_flags
+FROM c;
 
 -- COMMAND ----------
 

@@ -4,7 +4,7 @@ import ScoreBreakdown from './ScoreBreakdown.jsx'
 const CONF_CLASS = { High: 'conf-high', Medium: 'conf-med', Low: 'conf-low', Probable: 'conf-low', Unconfirmed: 'conf-none' }
 // Ranking bands used by find_care: strong/moderate, then probable, then weak
 const tierBand = (t) => (t === 'weak' ? 2 : t === 'probable' ? 1 : 0)
-const WARN_TAGS = ['Single source', 'Possible merged record', 'Not a hospital', 'Has referral mentions', 'Location uncertain', 'Weak evidence', 'Farther option']
+const WARN_TAGS = ['Single source', 'Possible merged record', 'Not a hospital', 'Has referral mentions', 'Location uncertain', 'Weak evidence', 'Farther option', 'Possible duplicate record', 'Identity not settled']
 
 function toRegex(pattern) {
   if (!pattern) return null

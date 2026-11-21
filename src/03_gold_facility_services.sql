@@ -166,31 +166,6 @@ RETURN exists(split(lower(phrase), '[,;]'), item ->
 
 -- COMMAND ----------
 
--- Does the phrase name a *different* hospital/clinic than the facility itself? ("referred to Cloudnine Hospital ...")
--- Takes the distinctive words of each "<Proper Name> Hospital/Clinic/Institute" in the phrase (4+ letters, not
--- generic or department words like "care", "super", "cancer", "sports injury") and calls it another facility only if
--- none of them appears in the facility's own name, allowing spelling variants (Ayush ~ Aayush, Sriram ~ Sri Ram).
-CREATE OR REPLACE FUNCTION workspace.datathon.mentions_other_facility(phrase STRING, own_name STRING)
-RETURNS BOOLEAN
-RETURN exists(
-  regexp_extract_all(phrase, '((?:[A-Z][A-Za-z.&\']+ ){1,4})(?:Hospitals?|Clinic|Medical College|Institute|Nursing Home|Healthcare|Medical Centre|Medical Center)', 1),
-  c -> size(filter(split(lower(c), '[^a-z]+'), w -> length(w) >= 4 AND w NOT IN
-          ('super', 'speciality', 'specialty', 'specialities', 'multi', 'multispeciality', 'care', 'city', 'general', 'government',
-           'district', 'civil', 'memorial', 'medical', 'research', 'centre', 'center', 'private', 'limited', 'india', 'indian',
-           'national', 'this', 'their', 'with', 'from', 'other', 'nearby', 'local', 'major', 'leading', 'children', 'women',
-           'mother', 'trust', 'teaching', 'advanced', 'charitable', 'cancer', 'oncology', 'neuro', 'heart', 'cardiac',
-           'cardiothoracic', 'kidney', 'pain', 'fertility', 'sports', 'injury', 'cornea', 'retina', 'baby', 'well', 'robotic',
-           'orthopaedic', 'orthopedic', 'ortho', 'surgery', 'surgical', 'spine', 'trauma', 'dialysis', 'diabetes', 'skin',
-           'dental', 'maternity', 'child', 'eye', 'vision', 'chest', 'top', 'best', 'list', 'listed', 'among', 'cataract',
-           'failure', 'health', 'check', 'wellness', 'joint', 'replacement', 'breast', 'stroke', 'sleep', 'liver', 'gastro', 'lung',
-           'bone', 'hand', 'neurosurgery', 'neurology', 'hospitals', 'clinics', 'international'))) > 0
-   AND NOT exists(
-          filter(split(lower(c), '[^a-z]+'), w -> length(w) >= 4),
-          w -> contains(regexp_replace(lower(own_name), '[^a-z]', ''), w)
-            OR exists(split(lower(own_name), '[^a-z]+'), o -> length(o) >= 4 AND levenshtein(o, w) <= 1)));
-
--- COMMAND ----------
-
 -- Claim type of a cited phrase. Only `direct` claims count fully; `list_dump` counts at most as moderate evidence;
 -- `hedged` (guessed from photos, "appears to") counts as weak only; `third_party` and `negated` never count.
 CREATE OR REPLACE FUNCTION workspace.datathon.claim_type(phrase STRING, own_name STRING)
@@ -642,8 +617,8 @@ FROM pts;
 -- MAGIC | `q_beds` | 10 | 500+ beds 10 · 200+ 8 · 100+ 6 · 50+ 4 · 20+ 2 · 1–19 1 · not reported 0 (teaching hospital with no bed count 8) |
 -- MAGIC | `q_support` | 10 | supporting services relevant to *this* service that the facility has with strong/moderate evidence (`ref_service_support`, e.g. ICU 4 + blood bank 4 + NICU 2 for C-section) |
 -- MAGIC | `q_sources` | 8 | 1.6 per independent source website, up to 5 |
--- MAGIC | `q_location` | 8 | location confidence high 8 · medium 4 · low/none 0 |
--- MAGIC | `q_coherence` | 4 | coordinates agree with PIN (2) + state field agrees (2) |
+-- MAGIC | `q_location` | 6 | location confidence high 6 · medium 3 · low/none 0 |
+-- MAGIC | `q_coherence` | 6 | `record_coherence_score` (silver, 0–100, named deductions) × 6 / 100 |
 -- MAGIC | `q_penalties` | | the trust-score penalties (possible merged record, clinic for a hospital service, negative mentions, implausible numbers) |
 -- MAGIC
 -- MAGIC Readiness = facility type + beds + support (≤30); reliability = sources + location + coherence (≤20).
@@ -706,14 +681,27 @@ q AS (
     coalesce(s.support_found, array()) AS support_found,
     coalesce(s.support_considered, array()) AS support_considered,
     CAST(round(1.6 * least(coalesce(n_source_domains, 0), 5)) AS INT) AS q_sources,
-    CASE location_confidence WHEN 'high' THEN 8 WHEN 'medium' THEN 4 ELSE 0 END AS q_location,
-    CASE WHEN array_contains(quality_flags, 'coords_pin_conflict') THEN 0 ELSE 2 END
-      + CASE WHEN array_contains(quality_flags, 'state_field_disagrees') THEN 0 ELSE 2 END AS q_coherence,
-    pen_merged + pen_facility_type + pen_negated + pen_numbers AS q_penalties
+    CASE location_confidence WHEN 'high' THEN 6 WHEN 'medium' THEN 3 ELSE 0 END AS q_location,
+    CAST(round(coalesce(sf.record_coherence_score, 100) * 6.0 / 100) AS INT) AS q_coherence,
+    pen_merged + pen_facility_type + pen_negated + pen_numbers AS q_penalties,
+    -- identity / coherence context from silver (Phase 4)
+    sf.record_coherence_score, sf.coh_coords_pin, sf.coh_city, sf.coh_state, sf.coh_located_in, sf.coh_other_facility,
+    sf.coh_duplicate, coalesce(sf.identity_conflict, false) AS identity_conflict, sf.identity_conflict_reason,
+    sf.possible_duplicate_names, sf.other_facilities_named
   FROM workspace.datathon.gold_facility_services g
   LEFT JOIN sup s USING (facility_id, service_key)
+  LEFT JOIN (SELECT facility_id, record_coherence_score, coh_coords_pin, coh_city, coh_state, coh_located_in,
+                    coh_other_facility, coh_duplicate, identity_conflict, identity_conflict_reason,
+                    possible_duplicate_names, other_facilities_named
+             FROM workspace.datathon.silver_facilities) sf USING (facility_id)
 )
-SELECT q.*,
+SELECT q.* EXCEPT (caveats),
+  concat(caveats, array_compact(array(
+    CASE WHEN size(possible_duplicate_names) > 0 THEN concat('A near-duplicate record is nearby (', array_join(possible_duplicate_names, ', '),
+                                                             '); details may be split between the two records.') END,
+    CASE WHEN size(other_facilities_named) > 0 THEN concat('The description names another facility: "', get(other_facilities_named, 0), '".') END,
+    CASE WHEN identity_conflict THEN concat('Identity not fully settled (', identity_conflict_reason, '), so confidence is capped at Medium.') END
+  ))) AS caveats,
   q_facility_type + q_beds + q_support AS q_readiness,
   q_sources + q_location + q_coherence AS q_reliability,
   greatest(0, least(100, q_evidence + q_facility_type + q_beds + q_support + q_sources + q_location + q_coherence + q_penalties)) AS quality_score

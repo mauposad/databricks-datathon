@@ -136,7 +136,11 @@ RETURNS TABLE (
   evidence_checks ARRAY<STRUCT<check_key: STRING, check_label: STRING, status: STRING, points: INT, max_points: INT,
                                cited_text: STRING, field: STRING, claim_type: STRING>>,
   claims_cited ARRAY<STRUCT<text: STRING, field: STRING, claim_type: STRING>>,
-  is_better_farther BOOLEAN)
+  is_better_farther BOOLEAN,
+  -- Phase 4: record coherence (identity) and the confidence cap
+  record_coherence_score INT, coh_coords_pin INT, coh_city INT, coh_state INT, coh_located_in INT,
+  coh_other_facility INT, coh_duplicate INT, identity_conflict BOOLEAN, identity_conflict_reason STRING,
+  possible_duplicate_names ARRAY<STRING>)
 COMMENT 'Ranked facilities for a service near a place: quality-first within a travel-time budget, with cited evidence (why), score arithmetic (how), trade-offs and uncertainty'
 RETURN
   WITH loc AS (SELECT * FROM workspace.datathon.resolve_location(place)),
@@ -247,7 +251,8 @@ RETURN
       CAST(q_beds AS STRING), '/10, supporting services ', CAST(q_support AS STRING), '/10',
       CASE WHEN size(support_found) > 0 THEN concat(': ', array_join(support_found, ', ')) ELSE '' END, ')',
       ' + reliability ', CAST(q_reliability AS STRING), '/20 (sources ', CAST(q_sources AS STRING), '/8, location ',
-      CAST(q_location AS STRING), '/8, coherence ', CAST(q_coherence AS STRING), '/4)',
+      CAST(q_location AS STRING), '/6, coherence ', CAST(q_coherence AS STRING), '/6 from a record coherence score of ',
+      CAST(record_coherence_score AS STRING), '/100)',
       CASE WHEN q_penalties < 0 THEN concat(' ', CAST(q_penalties AS STRING), ' penalties') ELSE '' END, '. ',
       CASE band
         WHEN 3 THEN 'Ranked after all confirmed/probable options because its evidence is weak.'
@@ -312,7 +317,10 @@ RETURN
            'Weak (unconfirmed) evidence always comes last. If nothing qualifies within the search radius, it is doubled (up to 300 km).'),
     'Travel time is estimated as straight-line km × 1.4 (road detour) ÷ 35 km/h average speed.',
     evidence_method, CAST(checks_found AS INT), CAST(checks_total AS INT),
-    evidence_checks, claims_cited, is_better_farther
+    evidence_checks, claims_cited, is_better_farther,
+    CAST(record_coherence_score AS INT), CAST(coh_coords_pin AS INT), CAST(coh_city AS INT), CAST(coh_state AS INT),
+    CAST(coh_located_in AS INT), CAST(coh_other_facility AS INT), CAST(coh_duplicate AS INT),
+    identity_conflict, nullif(identity_conflict_reason, ''), possible_duplicate_names
   FROM enriched
   WHERE rnk <= top_n OR is_near_alt OR is_better_farther
   ORDER BY rnk;

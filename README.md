@@ -117,7 +117,10 @@ the Marketplace share, which stays untouched.
 | Object | Layer | Grain | Purpose |
 |---|---|---|---|
 | `silver_pincode_geo` | silver | one row per PIN code | Robust PIN location (placeholder + outlier coordinates removed), district/state, ambiguity counts |
-| `silver_facilities` | silver | one row per facility (`cluster_id`) | Deduplicated, parsed claim arrays, resolved location + confidence, data-quality flags |
+| `silver_facilities` | silver | one row per facility (`cluster_id`) | Deduplicated, parsed claim arrays, resolved location + confidence, data-quality flags, `record_coherence_score` with named `coh_*` deductions, `identity_conflict` |
+| `silver_identity_claims` | silver | one row per identity claim | Coordinates, PIN, city, state, "located in" places, other facilities named, near-duplicates, each marked as agreeing with the resolved location or not |
+| `silver_possible_duplicates` | silver | one row per record pair | Different records within 3 km with near-identical distinctive names and the same focus; flagged, never merged |
+| `ref_city_districts` | reference | city × district | City spellings learned from records whose coordinates and PIN agree ("Bangalore" ↔ Bengaluru Urban) |
 | `ref_state_aliases`, `ref_services` | reference | | State spelling fixes; the keyword rules that define each searchable service |
 | `gold_facility_services` | gold | one row per facility × service | Cited evidence, evidence tier, 0–100 trust score with its components, caveats |
 | `facility_phrases` | gold (helper) | one row per phrase | Every verbatim phrase of every record (procedures, capabilities, equipment, description sentences, specialties) |
