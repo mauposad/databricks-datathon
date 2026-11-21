@@ -107,6 +107,32 @@ The CLI bundle configuration is useful for later deployment of jobs, pipelines,
 and other resources. It is not required to create a Repo or to browse the
 workspace.
 
+## Cleaned data: `workspace.datathon`
+
+The job `build_facility_tables` (defined in `resources/build_facility_tables.job.yml`) runs the SQL
+notebooks in `src/` on the Serverless Starter Warehouse and rebuilds these objects. It only reads from
+the Marketplace share, which stays untouched.
+
+| Object | Layer | Grain | Purpose |
+|---|---|---|---|
+| `silver_pincode_geo` | silver | one row per PIN code | Robust PIN location (placeholder + outlier coordinates removed), district/state, ambiguity counts |
+| `silver_facilities` | silver | one row per facility (`cluster_id`) | Deduplicated, parsed claim arrays, resolved location + confidence, data-quality flags |
+| `ref_state_aliases`, `ref_services` | reference | | State spelling fixes; the keyword rules that define each searchable service |
+| `gold_facility_services` | gold | one row per facility × service | Cited evidence, evidence tier, 0–100 trust score with its components, caveats |
+| `find_care(service, place, max_km, top_n)` | function | | Ranked recommendations with a `why` (citations) and `how` (score arithmetic) |
+
+```sql
+SELECT * FROM workspace.datathon.find_care('dialysis', 'Jaipur');
+SELECT * FROM workspace.datathon.find_care('emergency c-section', '226001', 50, 5);
+```
+
+Rebuild everything (about 6 minutes):
+
+```bash
+databricks bundle deploy --target dev
+databricks bundle run build_facility_tables --target dev
+```
+
 ## Next setup decisions
 
 Before deploying Databricks resources, the team still needs to choose:
