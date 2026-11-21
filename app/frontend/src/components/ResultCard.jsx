@@ -4,7 +4,7 @@ import ScoreBreakdown from './ScoreBreakdown.jsx'
 const CONF_CLASS = { High: 'conf-high', Medium: 'conf-med', Low: 'conf-low', Probable: 'conf-low', Unconfirmed: 'conf-none' }
 // Ranking bands used by find_care: strong/moderate, then probable, then weak
 const tierBand = (t) => (t === 'weak' ? 2 : t === 'probable' ? 1 : 0)
-const WARN_TAGS = ['Single source', 'Possible merged record', 'Not a hospital', 'Has referral mentions', 'Location uncertain', 'Weak evidence']
+const WARN_TAGS = ['Single source', 'Possible merged record', 'Not a hospital', 'Has referral mentions', 'Location uncertain', 'Weak evidence', 'Farther option']
 
 function toRegex(pattern) {
   if (!pattern) return null
@@ -45,6 +45,28 @@ function Comparison({ rec, top }) {
     .concat(top.score.parts.filter((p) => !rec.score.parts.some((q) => q.key === p.key)).map((p) => ({ label: p.label, d: -p.points })))
     .filter((x) => x.d !== 0)
   const sign = (n) => (n > 0 ? `+${n}` : `${n}`)
+  if (rec.score.mode === 'quality_first') {
+    const dq = rec.score.match - top.score.match
+    let reason
+    if (rec.ranking_band === 'unconfirmed') reason = 'Its evidence is weak, and weak evidence always comes after confirmed or probable options.'
+    else if (rec.ranking_band === 'farther option' && top.ranking_band === 'reachable')
+      reason = `It is about ${rec.travel_min} min away, beyond the ${rec.travel_budget_min}-minute travel budget for this service, so it comes after every reachable option.`
+    else if (dq >= 0) reason = `Its Quality is ${dq === 0 ? 'the same as' : `${dq} points higher than`} #1's, but facilities ranked above it are within 10 points of the best remaining option and closer.`
+    else if (rec.points_below_best != null && rec.points_below_best > 0)
+      reason = `Quality ${rec.score.match} vs ${top.score.match} (${dq}). When it was ranked, the best remaining Quality was ${rec.score.match + rec.points_below_best}; it is within 10 points of that and closer, which is why it is not lower still.`
+    else reason = `Quality ${rec.score.match} vs ${top.score.match} (${dq}): more than 10 points lower, so being closer does not move it up.`
+    return (
+      <div className="compare">
+        <h5>Why #{rec.rank} is below #1</h5>
+        <p>{reason}</p>
+        {diffs.length > 0 && (
+          <ul className="diffs">
+            {diffs.map((x) => <li key={x.label} className={x.d > 0 ? 'up' : 'down'}>{x.label}: {sign(x.d)}</li>)}
+          </ul>
+        )}
+      </div>
+    )
+  }
   return (
     <div className="compare">
       <h5>Why #{rec.rank} is below #1</h5>
@@ -96,6 +118,13 @@ export default function ResultCard({ rec, top, selected, onSelect }) {
         {rec.tags.map((t) => <span key={t} className={WARN_TAGS.includes(t) ? 'tag warn' : 'tag'}>{t}</span>)}
       </div>
 
+      {(rec.tradeoff_note || rec.counterfactual_note) && (
+        <div className="tradeoff">
+          {rec.tradeoff_note && <p><b>{rec.is_nearest_alternative ? 'Nearest option' : 'Trade-off'}:</b> {rec.tradeoff_note}</p>}
+          {rec.counterfactual_note && <p className="muted small">{rec.counterfactual_note}</p>}
+        </div>
+      )}
+
       <div className="contacts">
         <Contact icon="📞" label={rec.phone} value={rec.phone} href={rec.phone && `tel:${rec.phone.replace(/[^+\d]/g, '')}`} />
         <Contact icon="🌐" label={rec.website && hostOf(rec.website)} value={rec.website}
@@ -110,7 +139,7 @@ export default function ResultCard({ rec, top, selected, onSelect }) {
 
       {open && (
         <div className="why" onClick={(e) => e.stopPropagation()}>
-          <ScoreBreakdown score={rec.score} confidence={rec.confidence} distanceKm={rec.distance_km} />
+          <ScoreBreakdown score={rec.score} confidence={rec.confidence} distanceKm={rec.distance_km} rec={rec} />
 
           <h5>Evidence from the facility's record <span className="muted">(verbatim, by column)</span></h5>
           {rec.evidence.length === 0 && <p className="muted">No direct mention of this service in the record.</p>}

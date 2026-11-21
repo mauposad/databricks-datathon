@@ -632,6 +632,95 @@ FROM pts;
 
 -- COMMAND ----------
 
+-- MAGIC %md
+-- MAGIC ## Quality score (0–100), every component stored
+-- MAGIC
+-- MAGIC | component | max | rule |
+-- MAGIC |---|---|---|
+-- MAGIC | `q_evidence` | 50 | evidence points for this service (checklist or keyword rules, ≤60) scaled to 50 |
+-- MAGIC | `q_facility_type` | 10 | hospital 10 · clinic 3 · doctor 2 · other/unknown 0 |
+-- MAGIC | `q_beds` | 10 | 500+ beds 10 · 200+ 8 · 100+ 6 · 50+ 4 · 20+ 2 · 1–19 1 · not reported 0 (teaching hospital with no bed count 8) |
+-- MAGIC | `q_support` | 10 | supporting services relevant to *this* service that the facility has with strong/moderate evidence (`ref_service_support`, e.g. ICU 4 + blood bank 4 + NICU 2 for C-section) |
+-- MAGIC | `q_sources` | 8 | 1.6 per independent source website, up to 5 |
+-- MAGIC | `q_location` | 8 | location confidence high 8 · medium 4 · low/none 0 |
+-- MAGIC | `q_coherence` | 4 | coordinates agree with PIN (2) + state field agrees (2) |
+-- MAGIC | `q_penalties` | | the trust-score penalties (possible merged record, clinic for a hospital service, negative mentions, implausible numbers) |
+-- MAGIC
+-- MAGIC Readiness = facility type + beds + support (≤30); reliability = sources + location + coherence (≤20).
+
+-- COMMAND ----------
+
+CREATE OR REPLACE TABLE workspace.datathon.ref_service_support
+COMMENT 'Supporting services that make a facility more ready to deliver a service (readiness part of Quality). Points per service sum to 10.'
+AS SELECT * FROM VALUES
+  ('emergency_csection', 'icu', 'ICU', 4), ('emergency_csection', 'blood_bank', 'blood bank', 4), ('emergency_csection', 'nicu', 'NICU', 2),
+  ('high_risk_delivery', 'nicu', 'NICU', 4), ('high_risk_delivery', 'icu', 'ICU', 3), ('high_risk_delivery', 'blood_bank', 'blood bank', 3),
+  ('nicu', 'emergency_csection', 'C-section', 3), ('nicu', 'icu', 'ICU', 3), ('nicu', 'blood_bank', 'blood bank', 2), ('nicu', 'emergency_24x7', '24×7 emergency', 2),
+  ('trauma', 'emergency_24x7', '24×7 emergency', 3), ('trauma', 'ct_scan', 'CT', 3), ('trauma', 'icu', 'ICU', 2), ('trauma', 'blood_bank', 'blood bank', 2),
+  ('dialysis', 'icu', 'ICU', 4), ('dialysis', 'emergency_24x7', '24×7 emergency', 3), ('dialysis', 'blood_bank', 'blood bank', 3),
+  ('cardiac_surgery', 'cath_lab', 'cath lab', 4), ('cardiac_surgery', 'icu', 'ICU', 3), ('cardiac_surgery', 'blood_bank', 'blood bank', 3),
+  ('cath_lab', 'icu', 'ICU', 4), ('cath_lab', 'emergency_24x7', '24×7 emergency', 3), ('cath_lab', 'cardiac_surgery', 'cardiac surgery', 3),
+  ('mri', 'ct_scan', 'CT', 4), ('mri', 'emergency_24x7', '24×7 emergency', 3), ('mri', 'icu', 'ICU', 3),
+  ('ct_scan', 'emergency_24x7', '24×7 emergency', 4), ('ct_scan', 'mri', 'MRI', 3), ('ct_scan', 'icu', 'ICU', 3),
+  ('neurosurgery', 'icu', 'ICU', 4), ('neurosurgery', 'ct_scan', 'CT', 3), ('neurosurgery', 'emergency_24x7', '24×7 emergency', 3),
+  ('burn_care', 'icu', 'ICU', 4), ('burn_care', 'blood_bank', 'blood bank', 3), ('burn_care', 'emergency_24x7', '24×7 emergency', 3),
+  ('oncology', 'ct_scan', 'CT', 4), ('oncology', 'blood_bank', 'blood bank', 3), ('oncology', 'icu', 'ICU', 3),
+  ('icu', 'emergency_24x7', '24×7 emergency', 4), ('icu', 'blood_bank', 'blood bank', 3), ('icu', 'ct_scan', 'CT', 3),
+  ('emergency_24x7', 'icu', 'ICU', 4), ('emergency_24x7', 'ct_scan', 'CT', 3), ('emergency_24x7', 'blood_bank', 'blood bank', 3),
+  ('blood_bank', 'emergency_24x7', '24×7 emergency', 4), ('blood_bank', 'icu', 'ICU', 3), ('blood_bank', 'emergency_csection', 'C-section', 3),
+  ('orthopedic_surgery', 'blood_bank', 'blood bank', 4), ('orthopedic_surgery', 'icu', 'ICU', 3), ('orthopedic_surgery', 'ct_scan', 'CT', 3),
+  ('cataract', 'emergency_24x7', '24×7 emergency', 0)
+AS t(service_key, support_service, support_label, points);
+
+-- COMMAND ----------
+
+CREATE OR REPLACE TABLE workspace.datathon.gold_facility_services
+COMMENT 'Gold: one row per (facility, service) with evidence. Matched phrases are verbatim from the facility record for citation, each labelled with a claim type; trust_score and quality_score components are stored separately for transparency. Tiers: strong > moderate > probable > weak.'
+AS
+WITH confirmed AS (  -- services each facility has with strong/moderate evidence
+  SELECT facility_id, collect_set(service_key) AS confirmed_services
+  FROM workspace.datathon.gold_facility_services
+  WHERE evidence_tier IN ('strong', 'moderate')
+  GROUP BY facility_id
+),
+sup AS (
+  SELECT g.facility_id, g.service_key,
+         sum(CASE WHEN array_contains(c.confirmed_services, r.support_service) THEN r.points ELSE 0 END) AS q_support,
+         array_compact(collect_list(CASE WHEN array_contains(c.confirmed_services, r.support_service) AND r.points > 0
+                                         THEN r.support_label END)) AS support_found,
+         array_compact(collect_list(CASE WHEN r.points > 0 THEN r.support_label END)) AS support_considered
+  FROM workspace.datathon.gold_facility_services g
+  JOIN workspace.datathon.ref_service_support r USING (service_key)
+  LEFT JOIN confirmed c USING (facility_id)
+  GROUP BY g.facility_id, g.service_key
+),
+q AS (
+  SELECT g.*,
+    CAST(round(pts_evidence * 50.0 / 60) AS INT) AS q_evidence,
+    CASE facility_type WHEN 'hospital' THEN 10 WHEN 'clinic' THEN 3 WHEN 'doctor' THEN 2 ELSE 0 END AS q_facility_type,
+    CASE WHEN capacity_beds >= 500 THEN 10 WHEN capacity_beds >= 200 THEN 8 WHEN capacity_beds >= 100 THEN 6
+         WHEN capacity_beds >= 50 THEN 4 WHEN capacity_beds >= 20 THEN 2 WHEN capacity_beds >= 1 THEN 1
+         WHEN lower(name) RLIKE 'medical college|institute of medical sciences|\\baiims\\b|all india institute|medical university' THEN 8
+         ELSE 0 END AS q_beds,
+    CAST(coalesce(s.q_support, 0) AS INT) AS q_support,
+    coalesce(s.support_found, array()) AS support_found,
+    coalesce(s.support_considered, array()) AS support_considered,
+    CAST(round(1.6 * least(coalesce(n_source_domains, 0), 5)) AS INT) AS q_sources,
+    CASE location_confidence WHEN 'high' THEN 8 WHEN 'medium' THEN 4 ELSE 0 END AS q_location,
+    CASE WHEN array_contains(quality_flags, 'coords_pin_conflict') THEN 0 ELSE 2 END
+      + CASE WHEN array_contains(quality_flags, 'state_field_disagrees') THEN 0 ELSE 2 END AS q_coherence,
+    pen_merged + pen_facility_type + pen_negated + pen_numbers AS q_penalties
+  FROM workspace.datathon.gold_facility_services g
+  LEFT JOIN sup s USING (facility_id, service_key)
+)
+SELECT q.*,
+  q_facility_type + q_beds + q_support AS q_readiness,
+  q_sources + q_location + q_coherence AS q_reliability,
+  greatest(0, least(100, q_evidence + q_facility_type + q_beds + q_support + q_sources + q_location + q_coherence + q_penalties)) AS quality_score
+FROM q;
+
+-- COMMAND ----------
+
 -- Health check: evidence depth per service
 SELECT service_key,
        count(*) AS facilities_with_any_evidence,
@@ -639,6 +728,7 @@ SELECT service_key,
        count_if(evidence_tier = 'moderate') AS moderate,
        count_if(evidence_tier = 'probable') AS probable,
        count_if(evidence_tier = 'weak')     AS weak,
-       round(avg(trust_score)) AS avg_trust
+       round(avg(trust_score)) AS avg_trust,
+       round(avg(quality_score)) AS avg_quality
 FROM workspace.datathon.gold_facility_services
 GROUP BY service_key ORDER BY facilities_with_any_evidence DESC;

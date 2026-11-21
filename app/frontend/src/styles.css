@@ -66,6 +66,9 @@ input[type=range] { accent-color: var(--accent); }
 .alert { border-radius: 10px; padding: 10px 12px; font-size: 13px; }
 .alert.error { background: var(--low-bg); color: var(--low); }
 .alert.note { background: var(--warn-bg); color: var(--warn); }
+.alert.safety { background: var(--low-bg); color: var(--low); font-weight: 600; }
+.tradeoff { background: var(--accent-soft); border-radius: 8px; padding: 8px 10px; font-size: 13px; margin: 6px 0; }
+.tradeoff p { margin: 2px 0; }
 .summary { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .how-body { margin-top: 6px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
 .how-body p { margin: 0 0 6px; }

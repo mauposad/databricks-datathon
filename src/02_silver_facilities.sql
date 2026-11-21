@@ -294,7 +294,10 @@ SELECT
   -- specialty scope: a facility whose clinical specialties are all dental (or all eye care) cannot match
   -- general services like trauma or NICU, even if a keyword appears ("atraumatic extraction", "tooth trauma")
   CASE
-    WHEN size(f.core_specialties) > 0 AND forall(f.core_specialties, x -> x RLIKE '^(dent|oral)|odont|dentistry|maxillofacial|cleft') THEN 'dental'
+    WHEN size(f.core_specialties) > 0 AND forall(f.core_specialties, x -> x RLIKE '^(dent|oral)|odont|dentistry|maxillofacial|cleft|tmj') THEN 'dental'
+    -- "<X> Dental Clinic" / "<X> Eye Hospital" are dental / eye care whatever specialties were auto-listed
+    WHEN lower(f.name) RLIKE '\\bdental\\b|dentist|\\bdent(o|al)? ?care\\b' AND NOT lower(f.name) RLIKE 'medical college|general hospital|multi' THEN 'dental'
+    WHEN lower(f.name) RLIKE '\\beye (hospital|clinic|care|cent(re|er)|institute)|netralaya|nethralaya|\\bnetra\\b' AND NOT lower(f.name) RLIKE 'medical college|general hospital|multi' THEN 'eye'
     WHEN size(f.core_specialties) > 0 AND forall(f.core_specialties, x -> x RLIKE 'ophthalm|retina|cornea|glaucoma|oculoplast|strabism|cataract|uveitis|optometr|vitreo|^eye') THEN 'eye'
     WHEN size(f.core_specialties) = 0 AND (f.facility_type = 'dentist' OR lower(f.name) RLIKE '\\bdental\\b|dentist') THEN 'dental'
     WHEN size(f.core_specialties) = 0 AND lower(f.name) RLIKE '\\beye\\b|netra|nethra|ophthalm|lasik' THEN 'eye'

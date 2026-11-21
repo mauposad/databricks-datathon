@@ -77,6 +77,7 @@ export default function App() {
               <HowWeScore method={result.method} rule={results[0]?.confidence.rule} />
             </div>
           )}
+          {result?.safety_note && <div className="alert safety" role="alert">⚠ {result.safety_note}</div>}
           {result?.notes?.map((n) => <div key={n} className="alert note">{n}</div>)}
 
           {loading && <div className="skeletons">{[0, 1, 2].map((i) => <div key={i} className="skeleton" />)}</div>}

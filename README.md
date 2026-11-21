@@ -123,7 +123,15 @@ the Marketplace share, which stays untouched.
 | `facility_phrases` | gold (helper) | one row per phrase | Every verbatim phrase of every record (procedures, capabilities, equipment, description sentences, specialties) |
 | `ref_service_requirements` | reference | one row per service × check | Evidence dimensions for the 6 headline services (not a clinical checklist); points sum to 60 |
 | `gold_facility_service_checks` | gold | one row per facility × service × check | found / unknown / contradicted, with the phrase that decided it; missing = unknown, never a penalty |
-| `find_care(service, place, max_km, top_n)` | function | | Ranked recommendations with a `why` (citations) and `how` (score arithmetic) |
+| `ref_service_support` | reference | one row per service × supporting service | Supporting services that count toward readiness (e.g. ICU + blood bank + NICU for C-section) |
+| `ref_service_policy` | reference | one row per service | Travel-time budget and urgency (C-section 60 min, dialysis 45 min, cardiac surgery 240 min, ...) |
+| `find_care(service, place, max_km, top_n)` | function | | Quality-first ranking within the travel budget, with a `why` (citations), `how` (Quality arithmetic), nearest-option trade-off, safety line and search notes |
+
+**How results are ranked** (also returned verbatim in every row's `ranking_rule`): among facilities reachable within
+the service's travel budget, rank by Quality (0–100 = evidence ≤50 + readiness ≤30 + record reliability ≤20 −
+penalties). If two are within 10 Quality points, the closer one wins. Facilities beyond the budget come next, labelled
+"farther option"; weak (unconfirmed) evidence always comes last. If nothing qualifies in the radius, it is doubled up
+to 300 km. Travel time = straight-line km × 1.4 ÷ 35 km/h.
 
 ```sql
 SELECT * FROM workspace.datathon.find_care('dialysis', 'Jaipur');

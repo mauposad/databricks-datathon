@@ -76,7 +76,9 @@ def _facts(rec: RecommendResponse) -> str:
     lines = []
     for r in rec.results:
         ev = "; ".join(f'{e.label}: "{e.text[:90]}"' for e in r.evidence[:2]) or "no direct evidence"
-        lines.append(f"#{r.rank} {r.name}, {r.distance_km} km, confidence {r.confidence.label} (trust {r.confidence.score:g}). "
+        lines.append(f"#{r.rank} {r.name}, {r.distance_km} km"
+                     f"{f' (~{r.travel_min} min)' if r.travel_min is not None else ''}, "
+                     f"confidence {r.confidence.label} (quality {r.score.match:g}). "
                      f"Evidence: {ev}. Caveats: {'; '.join(r.caveats[:2]) or 'none'}. Phone: {r.phone or 'not listed'}.")
     return "\n".join(lines)
 
@@ -92,6 +94,8 @@ def template_reply(rec: RecommendResponse) -> str:
     if len(rec.results) > 1:
         nxt = rec.results[1]
         out += f" Next is {nxt.name} at {nxt.distance_km} km."
+    if rec.safety_note:
+        out = f"{rec.safety_note} {out}"
     return out
 
 
@@ -103,7 +107,8 @@ def grounded_reply(req: ChatRequest, rec: RecommendResponse) -> str:
               "Name the top choice, say why using its evidence, give its confidence, and mention one important caveat if any. "
               "Do not use markdown, lists or URLs.")
     user = (f"User asked: {req.message}\nService: {rec.service_label}. Searched from: {rec.origin.label}.\n"
-            f"Results (already ranked):\n{_facts(rec)}")
+            f"Results (already ranked):\n{_facts(rec)}"
+            + (f"\nSafety line (say this first, word for word): {rec.safety_note}" if rec.safety_note else ""))
     return _llm([{"role": "system", "content": system}, {"role": "user", "content": user}], 300).strip()
 
 

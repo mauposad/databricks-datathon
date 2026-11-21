@@ -41,7 +41,8 @@ class Score(BaseModel):
     distance: float               # 0-100, 100 = at the search point
     trust_weight: float = 0.6
     distance_weight: float = 0.4
-    parts: list[ScorePart] = []   # trust components (positives and penalties)
+    parts: list[ScorePart] = []   # components of `match` (positives and penalties)
+    mode: str = "weighted"        # "weighted" (match = 0.6 trust + 0.4 distance) or "quality_first" (match = Quality)
 
 
 class Confidence(BaseModel):
@@ -79,6 +80,16 @@ class Recommendation(BaseModel):
     sources: list[str] = []
     why: str = ""                       # one-paragraph plain-language reason
     how: str = ""                       # the score arithmetic as text
+    # quality-first ranking (optional; adapters that don't rank this way leave them empty)
+    travel_min: Optional[int] = None            # estimated travel time
+    travel_budget_min: Optional[int] = None     # how long a patient can reasonably travel for this service
+    ranking_band: Optional[str] = None          # reachable / farther option / unconfirmed
+    points_below_best: Optional[int] = None     # Quality points below the best remaining option when ranked
+    support_found: list[str] = []               # supporting services counted in readiness (e.g. ICU, blood bank)
+    is_nearest_alternative: bool = False        # nearest qualifying facility, shown although it is not #1
+    is_better_farther: bool = False             # clearly better, but beyond the travel budget
+    tradeoff_note: Optional[str] = None
+    counterfactual_note: Optional[str] = None   # "what would change this"
 
 
 class Origin(BaseModel):
@@ -97,6 +108,10 @@ class RecommendResponse(BaseModel):
     adapter: str = ""
     method: str = ""                    # how ranking works, for the "How we score" panel
     notes: list[str] = []               # e.g. "place not recognised"
+    ranking_rule: str = ""              # the rule, printed verbatim
+    travel_assumption: str = ""
+    search_note: Optional[str] = None   # e.g. "search widened to 150 km"
+    safety_note: Optional[str] = None   # e.g. "if unstable, go to the nearest 24x7 emergency facility first"
 
 
 class ChatTurn(BaseModel):

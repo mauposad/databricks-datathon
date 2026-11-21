@@ -17,11 +17,10 @@ CONFIDENCE_RULE = ("High: trust ≥ 70 with strong/moderate evidence · Medium: 
                    "Probable: the procedure is not named, but a large or teaching hospital lists the specialty (call to confirm) · "
                    "Unconfirmed: only weak evidence (a related specialty or a passing mention in the description)")
 
-METHOD = ("Rank = 0.6 × trust + 0.4 × distance, where distance = 100 × (1 − km / radius). "
-          "Trust (0–100) = evidence in the record (up to 60) + independent source websites (up to 15) "
-          "+ reported size (up to 10) + location certainty (up to 15), minus penalties for possible merged records, "
-          "non-hospital facilities for hospital services, negative/referral-only mentions, and implausible numbers. "
-          "Tiers are ranked as bands: strong/moderate, then probable, then weak, whatever the distance.")
+QUALITY = ("Quality (0–100) = evidence for this service in the record (up to 50) + readiness (up to 30: hospital vs "
+           "clinic, bed count, supporting services such as ICU or blood bank) + record reliability (up to 20: independent "
+           "source websites, location certainty, coherence) minus penalties for possible merged records, non-hospital "
+           "facilities for hospital services, negative/referral-only mentions and implausible numbers.")
 
 EVIDENCE_FIELDS = [  # (column in find_care, source column in the raw data, label)
     ("procedures_cited", "procedure", "Listed procedure"),
@@ -77,21 +76,39 @@ def _tags(r: dict) -> list[str]:
         tags.append("Has referral mentions")
     if r.get("location_confidence") in ("low", "none"):
         tags.append("Location uncertain")
+    if r.get("travel_min") is not None:
+        tags.append(f"~{r['travel_min']} min travel")
+    if r.get("ranking_band") == "farther option":
+        tags.append("Farther option")
+    if r.get("is_nearest_alternative"):
+        tags.append("Nearest option")
     return tags
+
+
+QUALITY_PARTS = [  # (column, label, max)
+    ("q_evidence", "Evidence for this service", 50),
+    ("q_facility_type", "Facility type", 10), ("q_beds", "Beds", 10), ("q_support", "Supporting services", 10),
+    ("q_sources", "Independent sources", 8), ("q_location", "Location certainty", 8), ("q_coherence", "Record coherence", 4),
+]
+PENALTIES = [("pen_merged", "Possible merged record"), ("pen_facility_type", "Not a hospital"),
+             ("pen_negated", "Negative/referral mention"), ("pen_numbers", "Implausible numbers")]
 
 
 def _score(r: dict) -> Score:
     parts = []
-    for key, label, mx in [("pts_evidence", "Evidence in record", 60), ("pts_sources", "Independent sources", 15),
-                           ("pts_scale", "Reported size", 10), ("pts_location", "Location certainty", 15)]:
+    quality_first = r.get("quality_score") is not None
+    components = QUALITY_PARTS if quality_first else [
+        ("pts_evidence", "Evidence in record", 60), ("pts_sources", "Independent sources", 15),
+        ("pts_scale", "Reported size", 10), ("pts_location", "Location certainty", 15)]
+    for key, label, mx in components:
         if r.get(key) is not None:
             parts.append(ScorePart(key=key, label=label, points=r[key], max=mx))
-    for key, label in [("pen_merged", "Possible merged record"), ("pen_facility_type", "Not a hospital"),
-                       ("pen_negated", "Negative/referral mention"), ("pen_numbers", "Implausible numbers")]:
+    for key, label in PENALTIES:
         if (r.get(key) or 0) < 0:
             parts.append(ScorePart(key=key, label=label, points=r[key]))
     return Score(match=r.get("match_score") or 0, trust=r.get("trust_score") or 0,
-                 distance=r.get("distance_score") or 0, parts=parts)
+                 distance=r.get("distance_score") or 0, parts=parts,
+                 mode="quality_first" if quality_first else "weighted")
 
 
 def _evidence(r: dict) -> list[Evidence]:
@@ -116,6 +133,11 @@ def to_recommendation(r: dict) -> Recommendation:
         rejected_evidence=r.get("negated_or_referral_mentions") or [],
         match_pattern=r.get("match_pattern"), caveats=r.get("caveats") or [],
         sources=r.get("source_urls") or [], why=r.get("why") or "", how=r.get("how") or "",
+        travel_min=r.get("travel_min"), travel_budget_min=r.get("travel_budget_min"),
+        ranking_band=r.get("ranking_band"), points_below_best=r.get("points_below_best"),
+        support_found=r.get("support_found") or [],
+        is_nearest_alternative=bool(r.get("is_nearest_alternative")), is_better_farther=bool(r.get("is_better_farther")),
+        tradeoff_note=r.get("tradeoff_note"), counterfactual_note=r.get("counterfactual_note"),
     )
 
 
@@ -139,7 +161,7 @@ class FindCareAdapter(Adapter):
     def recommend(self, q: Query) -> RecommendResponse:
         rows = sql.query(f"SELECT * FROM {sql.fq('find_care')}(:service, :place, CAST(:max_km AS DOUBLE), CAST(:top_n AS INT))",
                          {"service": q.service, "place": q.place, "max_km": q.max_km, "top_n": q.top_n})
-        resp = RecommendResponse(query=q, adapter=self.name, method=METHOD)
+        resp = RecommendResponse(query=q, adapter=self.name, method=QUALITY)
         if not rows:
             resp.notes.append(self._diagnose(q))
             return resp
@@ -149,6 +171,14 @@ class FindCareAdapter(Adapter):
                              label=first.get("searched_from"), matched_as=first.get("origin_matched_as"))
         resp.n_candidates = first.get("n_candidates") or len(rows)
         resp.results = [to_recommendation(r) for r in rows]
+        resp.ranking_rule = first.get("ranking_rule") or ""
+        resp.travel_assumption = first.get("travel_assumption") or ""
+        resp.search_note = first.get("search_note") or None
+        resp.safety_note = first.get("safety_note") or None
+        if resp.ranking_rule:
+            resp.method = f"{resp.ranking_rule} {QUALITY} {resp.travel_assumption}"
+        if resp.search_note:
+            resp.notes.append(resp.search_note)
         if any(r.confidence.label == "Unconfirmed" for r in resp.results):
             resp.notes.append("Some results only have weak evidence and are shown to fill the list; treat them as unconfirmed.")
         return resp
