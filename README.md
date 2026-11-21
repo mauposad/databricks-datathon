@@ -127,6 +127,17 @@ SELECT * FROM workspace.datathon.find_care('dialysis', 'Jaipur');
 SELECT * FROM workspace.datathon.find_care('emergency c-section', '226001', 50, 5);
 ```
 
+### Matching quality (hand-labelled evaluation)
+
+`eval/` holds 66 hand-labelled facility × service pairs and a script that reports precision/recall
+(see [`eval/README.md`](eval/README.md)). A facility counts as offering a service when its tier is strong or moderate.
+
+| version | precision | recall |
+|---|---|---|
+| keyword baseline (any alias anywhere) | 0.80 | 0.89 |
+| original rules (v1) | 0.78 | 0.89 |
+| exclusions + claim types + dental/eye scope gate | **1.00** | 0.86 |
+
 Rebuild everything (about 6 minutes):
 
 ```bash

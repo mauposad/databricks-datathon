@@ -1,0 +1,67 @@
+facility_id,service_key,label,note,facility_name,why_sampled
+00bc1425-7906-4fde-b26e-c4a097714bab,cardiac_surgery,no,"""Blood Vessel Bypass Surgery"" at a 30-bed children's hospital: vascular bypass, not cardiac surgery",Garg Child Hospital,known_issue
+00d9cee3-e36a-461c-b52b-39481a05bae3,cardiac_surgery,no,"Only ""Blood Vessel Bypass Surgery"": peripheral vascular, not cardiac surgery",Mehar Hospital,known_issue
+00369bc3-387d-4c49-b458-bfa3a7683897,cardiac_surgery,yes,"Dedicated cardiac surgery OT, 5,000+ cardiac surgeries stated",Sudha Hospital & Medical Research Centre,random_sm
+0114241b-d647-4d97-b5e7-e27c26ec8665,cardiac_surgery,no,"""Brain Bypass Surgery"" is neurosurgery, not cardiac",Max Neurocare And Superspeciality Hospital,random_sm
+01310811-61cc-4df0-b5cb-2054ac01a0c8,cardiac_surgery,yes,Performs CABG,Unicare Hospital,random_sm
+08f3d914d3943306030cef5c85c1c117,cardiac_surgery,unclear,Cardiothoracic surgery appears only inside a long specialty list,Akshaya Heart Hospital,random_sm
+08f3da815d596c8403406367fe65988b,cardiac_surgery,yes,States it performs open heart surgery,Keshlata Hospital,random_sm
+08f602622605c6610311157b8bf2d7d8,cardiac_surgery,unclear,Cardiac surgery only as a listed specialty,Gowreesa hospital,random_weak
+00321547-0f06-4f24-bcc5-48393f0dff16,dialysis,yes,Provides hemodialysis (record flagged as possibly merged),Isha Multispeciality Hospital,merged
+00361ecc-7edf-4799-ad64-5831d6eda89a,dialysis,yes,Emergency dialysis,Gunam Hospital - Hosur,random_sm
+01f4c77b-0d85-4e08-8c9b-5bbd8ae6d5c8,dialysis,yes,24/7 dialysis program,Brookefield Hospital,random_sm
+08f3c1b8a1432ac503d37b33079c64a7,dialysis,yes,On-site dialysis units,Jeevan Rekha Hospital,random_sm
+08f3dadd9d656d410368fac71be4ae93,dialysis,yes,Dialysis unit on-site,Ananya Hospital & Research Center,random_sm
+08f4249209cee4a8037c97a818b105f1,dialysis,yes,On-site hemodialysis machines,Hi-Care Hospital,random_sm
+0083c2b5-b396-4f1a-952e-97ba98b64064,dialysis,unclear,150-bed super-speciality with nephrology listed; dialysis never named,Pace Hospitals,random_weak
+00988cd0-6c2a-49e6-88f6-a1cc3ff532f4,emergency_csection,yes,AIIMS (960 beds) with obstetrics + maternal-fetal medicine departments; procedure not named in record,All India Institute of Medical Sciences Patna,known_issue
+012ada08-5af6-4def-b345-ab1853344300,emergency_csection,yes,"IGIMS (1,000-bed tertiary institute) with obstetrics department; procedure not named",Indira Gandhi Institute of Medical Sciences,known_issue
+0220f462-8b84-48a0-a05a-c1d824525d70,emergency_csection,yes,"KGMU (4,000-bed medical university) with obstetrics; procedure not named","King George's Medical University, Lucknow",known_issue
+03821618-c30e-4578-a956-bc614b72098b,emergency_csection,yes,AIIMS Nagpur with obstetrics and neonatology departments; procedure not named,"All India Institute of Medical Sciences (AIIMS), Nagpur, Maharshtra",known_issue
+08f3c138d023058c03e985d74255af4d,emergency_csection,yes,"AIIMS Patna duplicate record; 1,000 beds, emergency; procedure not named",AIIMS Patna,known_issue
+0017a75e-a302-403b-ba39-ec47254ed19e,emergency_csection,yes,Stitchless cesarean sections,Christian Medical College Ludhiana,random_sm
+00fadd88-df09-4a1e-a3ad-95c5a431b2d1,emergency_csection,yes,States cesarean section (listed as clinic; emergency availability unknown),Synergy Clinics,random_sm
+05846b9b-d27c-4515-a1cd-c36fd8a7c598,emergency_csection,yes,Caesarean delivery named several times,Dhaliwal Hospital,random_sm
+08f3cf2c7021621003224ee4882a51de,emergency_csection,yes,Cesarean delivery + two OTs with anaesthesia,"N.G. Nursing Home, Kalighat",random_sm
+08f3d85ba4a8404003c6d6fc99de69f7,emergency_csection,yes,Cesarean sections in labour room + modular OT,Ram Tej Hospital,random_sm
+08f608a616c9885e033566f65c371c0a,emergency_csection,unclear,"Obstetrics listed as specialty only, size unknown",Matoshri Hospital,random_weak
+00df4a1c-b02c-4ef2-a1ad-042de23c60e9,mri,no,"Diagnostic lab; MRI only guessed from photos (""appears to be"")",Pathkind Labs,known_issue
+02e9be1d-5dce-4ad0-b3bf-72ae75f4eee0,mri,unclear,"Only ""resembles a circular-bore MRI/CT scanner"" in photos",Prime Indian Hospital,known_issue
+0083c2b5-b396-4f1a-952e-97ba98b64064,mri,yes,MRI scanner + MRI imaging services,Pace Hospitals,random_sm
+08f3cf2c7021621003224ee4882a51de,mri,yes,Offers MRI scan; MRI scanner listed,"N.G. Nursing Home, Kalighat",random_sm
+08f4249209cee4a8037c97a818b105f1,mri,yes,MRI system listed as equipment,Hi-Care Hospital,random_sm
+0017a75e-a302-403b-ba39-ec47254ed19e,mri,yes,MRI procedures for pediatric and adult patients,Christian Medical College Ludhiana,random_sm
+08f3c1b8a1432ac503d37b33079c64a7,mri,yes,1.5T MRI system,Jeevan Rekha Hospital,random_sm
+08f3ca9c80c23bb6037ddc3e6fb46c03,mri,unclear,Ultrasound/diagnostic centre; only radiology specialty,Sri Jagannath Hospital And Ultra Scan Diagnostic Centre - Saraidhela,random_weak
+0023d125-295b-4059-8e97-3a2162add36b,nicu,unclear,NICU appears only as an ambulance transfer service,Queen’s NRI Hospital (Association with vijayanagaram Hospitals Pvt Ltd.) Mr.T.CH,known_issue
+08f3dad4082408b6038e8deacc01668c,nicu,no,"Only evidence is an ambulance labelled ""ICU, NICU""","The Medicity Hospital, Rudrapur",known_issue
+0798d73b-3f83-40eb-9017-6d08ee776a00,nicu,yes,Neonatal ICU (NICU) listed as capability (record flagged as possibly merged),"Sarkar Multi-Speciality Hospital & IVF Centre, Agra",merged
+03dc40d2-98e8-45f5-8de9-85822c2535ea,nicu,yes,Offers neonatal intensive care,Chiguru Child Care Centre,random_sm
+0017a75e-a302-403b-ba39-ec47254ed19e,nicu,yes,NICU with ventilation equipment,Christian Medical College Ludhiana,random_sm
+08f3d914d3943306030cef5c85c1c117,nicu,yes,Incubator and neonatal monitoring in NICU,Akshaya Heart Hospital,random_sm
+08f3dadd9d656d410368fac71be4ae93,nicu,yes,Scope of services includes NICU,Ananya Hospital & Research Center,random_sm
+08f3c1b8a1432ac503d37b33079c64a7,nicu,yes,NICU and NHDU listed in several places,Jeevan Rekha Hospital,random_sm
+08f3d1614e81d9a1036e058943a0aebd,nicu,unclear,"Neonatology specialty only, 30 beds",Prime Multispeciality Hospital,random_weak
+0062d694-09a6-4cec-8e39-e7550b731bb7,trauma,no,"Dental clinic; ""atraumatic extraction"" is not trauma care",Scientific Dental Clinic,known_issue
+019cdfad-901b-45b9-b4d5-8a81f1fd4c8d,trauma,yes,310-bed hospital with casualty and emergency departments (match came from a department list),Pvs Sunrise Hospital Calicut,known_issue
+08f3da56db5902180347991403e557e4,trauma,yes,Emergency and trauma unit,R S Gaur Global Multi Specialty Hospital,random_sm
+08f42cc803c5b80a0313ea8c27781189,trauma,yes,Post-accident orthopaedic trauma management,Harsh Orthopedic Hospital,random_sm
+08f42d948031a8b60325b3c4882b4feb,trauma,yes,Operates as a trauma centre,Maa Krupa Hospital,random_sm
+08f42db5507a2d0b03b86f6b0895979c,trauma,yes,"Trauma unit, industrial accident care, OT with C-arm (16 beds)",Meghana Nursing Home,random_sm
+08f3c1b8a1432ac503d37b33079c64a7,trauma,yes,Trauma care with CT/MRI,Jeevan Rekha Hospital,random_sm
+0083c2b5-b396-4f1a-952e-97ba98b64064,trauma,unclear,150-bed super-speciality; trauma never named,Pace Hospitals,random_weak
+005aa4e7-d929-4375-a337-5908e3d5a09f,cath_lab,no,"Bile duct stenting is endoscopic, not a cath lab",Lbs Hospital,known_issue
+08f608852a0b6364031351f79216c438,cath_lab,no,Biliary stenting at a gastro clinic,RL Gastro Care,known_issue
+08f618c4f2462c4d030119530295842c,cath_lab,yes,Coronary angioplasty (PTCA) and stenting,Capstone Clinic,known_issue
+08f3d8dcc565293503638e8c195441b0,emergency_csection,yes,"Caesarean deliveries named, two OTs with anaesthesia (20 beds)",Aiman Nursing Home,known_issue
+0023e05c-44a7-4bb6-8e63-d3a6d5f60724,trauma,yes,"1,416-bed municipal medical college; cited text (2016 paper affiliation) is not evidence by itself",Lokmanya Tilak Municipal Medical College and General Hospital,known_issue
+002b8884-dbd3-4250-9e61-cce5bfb61a0c,trauma,yes,Fracture and accident care,Mahajan Ortho and Surgical Hospital,known_issue
+08f3d9864951d89503ecb10323058f09,trauma,no,Dental clinic; tooth/facial trauma in dentistry context,Jabalpur Dental Clinic,known_issue
+08f609612da36030034738f74d3caf01,trauma,yes,Polytrauma and orthopaedic trauma surgery,RNH Hospital,known_issue
+08f609612d77460a03f170344556bc3f,trauma,yes,Complex limb trauma care,Chandak Nursing Home,known_issue
+08f608b0142dc26403ba3f43ea3f2977,trauma,no,"Dental clinic; ""trauma management in pediatric dentistry""",Divinity Dental Care,known_issue
+07dbf011-8923-4126-ad51-e79b1d4939e2,mri,yes,MRI scan named in procedures and capabilities,Healing Touch Super Speciality Hospital,known_issue
+08f3ca8525369a26036d84b5d00d3c93,mri,unclear,"Only ""imaging device visible: large bore scanner (CT/MRI)""",Synergy Global Care Hospital,known_issue
+08f6031450d65b8003bcc4a6c5814d4b,mri,no,"A brain MRI image ""depicted in facility photos"" is not a scanner",Athani Hospital,known_issue
+08f618c40a454a8c030fa79c76562cc2,nicu,yes,NICU described as state-of-the-art (218 beds),Voluntary Health Services,known_issue
+064fa54e-9fac-43f1-a828-61adc0b923cc,cardiac_surgery,unclear,"Only ""blood vessel bypass surgery""; 100 beds","Dr. Babasaheb Ambedkar Hospital & Research Center, Nagpur",known_issue

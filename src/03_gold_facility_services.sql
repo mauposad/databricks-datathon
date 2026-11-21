@@ -14,7 +14,23 @@
 -- MAGIC   (or named in both procedures and capabilities with 3+ independent source websites)
 -- MAGIC * `moderate`: named in procedures or capabilities (or service-specific equipment such as an MRI scanner or
 -- MAGIC   dialysis machine is listed), but not corroborated as above. Generic kit (OT, ventilator, C-arm) never counts on its own.
--- MAGIC * `weak`: only implied (related specialty, or only in the free-text description)
+-- MAGIC * `weak`: only implied (related specialty, only in the free-text description, or only guessed, e.g. from photos)
+-- MAGIC
+-- MAGIC **What counts as a mention** (checked per comma-separated item of each phrase):
+-- MAGIC * it matches the service's `text_regex` (or `equipment_regex` for equipment) and **not** its `exclude_regex`
+-- MAGIC   (e.g. bile-duct stents are not a cath lab, "atraumatic extraction" is not trauma care, "brain bypass" is not cardiac surgery);
+-- MAGIC * it is not about an ambulance or vehicle (an ambulance "labelled ICU, NICU" is not a NICU);
+-- MAGIC * the facility is not dental-only (or eye-only, except for cataract): see `scope_family` in silver.
+-- MAGIC
+-- MAGIC **Claim type of every cited phrase** (stored in `claims_cited` so the app can label each quote):
+-- MAGIC
+-- MAGIC | claim_type | rule | counts as |
+-- MAGIC |---|---|---|
+-- MAGIC | `direct` | a plain statement | full evidence |
+-- MAGIC | `list_dump` | 8+ comma/semicolon items, or starts "Departments / Specializations / Services include" | at most `moderate`, 10 points |
+-- MAGIC | `hedged` | "appears", "likely", "resembles", "visible in photos", "depicted" ... | `weak` only, with a caveat |
+-- MAGIC | `third_party` | affiliation / paper / study / partnership, or names a different hospital | nothing (shown, struck through) |
+-- MAGIC | `negated` | "no", "not", "without", "referred" (benign uses like "no-stitch" or "License No." excluded) | nothing, −10 penalty |
 -- MAGIC
 -- MAGIC **Trust score (0–100)** = evidence (≤60) + source corroboration (≤15) + reported scale (≤10) + location confidence (≤15)
 -- MAGIC minus penalties (possible merged record −15, clinic claiming hospital-level care −20, negated/referral mentions −10,
@@ -26,10 +42,12 @@
 
 CREATE OR REPLACE TABLE workspace.datathon.ref_services
 COMMENT 'Services users can search for, with the keyword rules used to find evidence (regexes are applied to lower-cased text)'
-AS SELECT *,
+AS SELECT t.*,
   -- Can equipment alone prove the service? Yes for an MRI/CT scanner, dialysis machine, LINAC or blood bank;
   -- no for generic kit (an operating theatre does not prove C-sections, a ventilator does not prove trauma care).
-  service_key IN ('dialysis', 'mri', 'ct_scan', 'oncology', 'blood_bank') AS equipment_alone_counts
+  t.service_key IN ('dialysis', 'mri', 'ct_scan', 'oncology', 'blood_bank') AS equipment_alone_counts,
+  -- A phrase that matches text_regex but also matches exclude_regex is about something else and is ignored.
+  x.exclude_regex
 FROM VALUES
   ('dialysis', 'Dialysis',
    array('dialysis', 'kidney dialysis', 'haemodialysis', 'hemodialysis', 'renal replacement'),
@@ -58,7 +76,7 @@ FROM VALUES
    array('criticalcaremedicine'), true),
   ('cardiac_surgery', 'Cardiac surgery',
    array('cardiac surgery', 'heart surgery', 'bypass surgery', 'cabg', 'open heart surgery', 'valve replacement'),
-   '\\bcabg\\b|bypass (graft|surgery)|open[- ]heart|valve (replacement|repair|surgery)|cardiac surgery|cardiothoracic|heart surgery',
+   '\\bcabg\\b|(coronary|cardiac|heart)[a-z ()-]{0,25}bypass|open[- ]heart|valve (replacement|repair|surgery)|cardiac surgery|cardiothoracic|heart surgery',
    'heart[- ]lung|cardiopulmonary bypass|\\biabp\\b|intra[- ]aortic|perfusion',
    array('cardiacsurgery', 'cardiothoracicsurgery', 'cardiothoracicandvascularsurgery'), true),
   ('cath_lab', 'Angiography / angioplasty (cath lab)',
@@ -68,7 +86,7 @@ FROM VALUES
    array('cardiology', 'interventionalcardiology'), true),
   ('trauma', 'Trauma & accident care',
    array('trauma', 'accident', 'road accident', 'polytrauma', 'injury'),
-   'trauma|polytrauma|accident|road traffic',
+   '\\btrauma\\b|polytrauma|traumatolog|\\baccidents?\\b|road traffic',
    '\\bct\\b|ct scan|ventilator|c-arm|blood bank',
    array('emergencymedicine', 'traumasurgery'), true),
   ('emergency_24x7', '24/7 emergency department',
@@ -116,65 +134,176 @@ FROM VALUES
    'cataract|phaco|\\biol\\b|intraocular lens',
    'phaco|operating microscope|biometr',
    array('ophthalmology'), false)
-AS t(service_key, service_label, aliases, text_regex, equipment_regex, specialties, needs_hospital);
+AS t(service_key, service_label, aliases, text_regex, equipment_regex, specialties, needs_hospital)
+LEFT JOIN VALUES
+  -- tooth / facial trauma in dentistry, psychological trauma, "cerebrovascular accident" (= stroke)
+  ('trauma', 'dental|dentist|tooth|teeth|oral surgeon|orthodont|maxillofacial|\\bjaw\\b|psycholog|emotional|counsel|ptsd|cerebro ?vascular accident'),
+  -- bile duct / ureteric / GI stents are not a cath lab, unless the same phrase is clearly coronary
+  ('cath_lab', '^(?!.*(angioplast|coronary|cardiac|cath ?lab|ptca|heart)).*(bile|biliary|ureter|\\bdj\\b|\\bpcn\\b|ptbd|ercp|esophag|oesophag|colonic|duodenal|pancrea|enteral)'),
+  -- brain / gastric / peripheral bypass is not cardiac surgery
+  ('cardiac_surgery', 'brain bypass|gastric bypass|blood vessel bypass|vascular bypass|femoro|fem-pop|bariatric'),
+  ('burn_care', 'heartburn|burning (sensation|micturition|feet|eyes)'),
+  ('mri', 'mri (report|referral|film)s?\\b')
+AS x(service_key, exclude_regex) ON x.service_key = t.service_key;
+
+-- COMMAND ----------
+
+-- Is this phrase a mention of the service? It must match the service's regex, must not match its exclusion regex,
+-- and must not be about an ambulance/vehicle (an ambulance "labelled ICU, NICU" is not a NICU), except for the
+-- 24/7 emergency service where an ambulance is genuine supporting equipment.
+-- Checked per comma/semicolon item, so "Maxillofacial Surgery, ..., Emergency Medicine & Accident" still counts
+-- for trauma: the exclusion only removes the item it is in.
+CREATE OR REPLACE FUNCTION workspace.datathon.phrase_matches(phrase STRING, pattern STRING, exclude_pattern STRING, service_key STRING)
+RETURNS BOOLEAN
+RETURN exists(split(lower(phrase), '[,;]'), item ->
+       item RLIKE pattern
+   AND NOT coalesce(item RLIKE exclude_pattern, false)
+   AND NOT (service_key <> 'emergency_24x7' AND item RLIKE '\\b(ambulances?|vehicles?|vans?)\\b'));
+
+-- COMMAND ----------
+
+-- Does the phrase name a *different* hospital/clinic than the facility itself? ("referred to Cloudnine Hospital ...")
+-- Takes the distinctive words of each "<Proper Name> Hospital/Clinic/Institute" in the phrase (4+ letters, not
+-- generic or department words like "care", "super", "cancer", "sports injury") and calls it another facility only if
+-- none of them appears in the facility's own name, allowing spelling variants (Ayush ~ Aayush, Sriram ~ Sri Ram).
+CREATE OR REPLACE FUNCTION workspace.datathon.mentions_other_facility(phrase STRING, own_name STRING)
+RETURNS BOOLEAN
+RETURN exists(
+  regexp_extract_all(phrase, '((?:[A-Z][A-Za-z.&\']+ ){1,4})(?:Hospitals?|Clinic|Medical College|Institute|Nursing Home|Healthcare|Medical Centre|Medical Center)', 1),
+  c -> size(filter(split(lower(c), '[^a-z]+'), w -> length(w) >= 4 AND w NOT IN
+          ('super', 'speciality', 'specialty', 'specialities', 'multi', 'multispeciality', 'care', 'city', 'general', 'government',
+           'district', 'civil', 'memorial', 'medical', 'research', 'centre', 'center', 'private', 'limited', 'india', 'indian',
+           'national', 'this', 'their', 'with', 'from', 'other', 'nearby', 'local', 'major', 'leading', 'children', 'women',
+           'mother', 'trust', 'teaching', 'advanced', 'charitable', 'cancer', 'oncology', 'neuro', 'heart', 'cardiac',
+           'cardiothoracic', 'kidney', 'pain', 'fertility', 'sports', 'injury', 'cornea', 'retina', 'baby', 'well', 'robotic',
+           'orthopaedic', 'orthopedic', 'ortho', 'surgery', 'surgical', 'spine', 'trauma', 'dialysis', 'diabetes', 'skin',
+           'dental', 'maternity', 'child', 'eye', 'vision', 'chest', 'top', 'best', 'list', 'listed', 'among', 'cataract',
+           'failure', 'health', 'check', 'wellness', 'joint', 'replacement', 'breast', 'stroke', 'sleep', 'liver', 'gastro', 'lung',
+           'bone', 'hand', 'neurosurgery', 'neurology', 'hospitals', 'clinics', 'international'))) > 0
+   AND NOT exists(
+          filter(split(lower(c), '[^a-z]+'), w -> length(w) >= 4),
+          w -> contains(regexp_replace(lower(own_name), '[^a-z]', ''), w)
+            OR exists(split(lower(own_name), '[^a-z]+'), o -> length(o) >= 4 AND levenshtein(o, w) <= 1)));
+
+-- COMMAND ----------
+
+-- Claim type of a cited phrase. Only `direct` claims count fully; `list_dump` counts at most as moderate evidence;
+-- `hedged` (guessed from photos, "appears to") counts as weak only; `third_party` and `negated` never count.
+CREATE OR REPLACE FUNCTION workspace.datathon.claim_type(phrase STRING, own_name STRING)
+RETURNS STRING
+RETURN CASE
+  -- "no", "without", "referred" ... but not benign uses: "no-stitch", "at no cost", "License No. 16", "with or without stent"
+  WHEN lower(phrase) RLIKE '\\b(no|not|without|lacks?|unavailable|refer(red|ral|s)?)\\b'
+   AND NOT lower(phrase) RLIKE 'with or without|\\bno\\.?:?\\s*[0-9]|(contact|phone|mobile|tel) no|licen[cs]e no|reg(istration|d)?\\.? no|\\bno[- ](extra )?(cost|charge|stitch|scalpel|scar|pain|waiting|blade|needle|injection|eye patch|bandage)|not only|without (any )?(stitch|scar|pain|cuts?|bypass|incision|open surgery|blade|needle|injection|holidays?|break|disruption|interruption)|referral (hospital|cent(re|er)|institute)'
+    THEN 'negated'
+  -- affiliations, partnerships, publications ... unless the phrase names the facility itself
+  -- ("Dr X is affiliated with <this hospital>", "ICU run through a partnership at <this hospital>")
+  WHEN lower(phrase) RLIKE 'affiliat|\\bpapers?\\b|multicent|(prospective|retrospective|clinical|research|cohort) (study|trial)|partner(ed|ship| with)|tie[- ]?up|in association with|collaborat|journal|abstract|published|conference|consensus'
+   AND NOT exists(split(lower(own_name), '[^a-z]+'), o -> length(o) >= 5 AND contains(lower(phrase), o)
+          AND o NOT IN ('hospital', 'hospitals', 'medical', 'clinic', 'centre', 'center', 'super', 'speciality', 'specialty',
+                        'multi', 'memorial', 'institute', 'sciences', 'research', 'general', 'district', 'government',
+                        'civil', 'nursing', 'charitable', 'healthcare', 'international', 'college', 'trust', 'foundation'))
+    THEN 'third_party'
+  WHEN lower(phrase) RLIKE '\\b(appears?|appearing|likely|resembl\\w*|consistent with|suggests?|suggesting|possibly|probably|seems?|might|could be|may be|depicted|referenced|indicates?|presumably)\\b|visible in (the )?(facility )?photos?|in (the )?(facility )?photos?|photo(graph)?s? (show|depict)'
+    THEN 'hedged'
+  WHEN size(split(phrase, '[,;]')) >= 8
+    OR lower(phrase) RLIKE '^\\s*(departments?|speciali[sz]ations?|specialit(y|ies)|specialt(y|ies)|super[- ]?specialit(y|ies)|services)( include| offered| available| such as| like|:)'
+    THEN 'list_dump'
+  WHEN workspace.datathon.mentions_other_facility(phrase, own_name) THEN 'third_party'
+  ELSE 'direct'
+END;
 
 -- COMMAND ----------
 
 CREATE OR REPLACE TABLE workspace.datathon.gold_facility_services
-COMMENT 'Gold: one row per (facility, service) with evidence. Matched phrases are verbatim from the facility record for citation; trust_score components are stored separately for transparency.'
+COMMENT 'Gold: one row per (facility, service) with evidence. Matched phrases are verbatim from the facility record for citation, each labelled with a claim type; trust_score components are stored separately for transparency.'
 AS
-WITH m AS (
+WITH phrases AS (  -- every claim phrase of every facility, one row each, with its field and position
+  SELECT facility_id, name, 'procedures' AS field, pos, text FROM workspace.datathon.silver_facilities LATERAL VIEW posexplode(procedures) t AS pos, text
+  UNION ALL
+  SELECT facility_id, name, 'capabilities', pos, text FROM workspace.datathon.silver_facilities LATERAL VIEW posexplode(capabilities) t AS pos, text
+  UNION ALL
+  SELECT facility_id, name, 'equipment', pos, text FROM workspace.datathon.silver_facilities LATERAL VIEW posexplode(equipment) t AS pos, text
+  UNION ALL  -- description, split into sentences
+  SELECT facility_id, name, 'description', pos, trim(text) FROM workspace.datathon.silver_facilities
+  LATERAL VIEW posexplode(split(coalesce(description, ''), '\\.(\\s|$)')) t AS pos, text
+),
+matched AS (  -- phrases that mention a service (regex hit, not excluded), classified by claim type
+  SELECT p.facility_id, s.service_key, p.field, p.pos, p.text,
+         workspace.datathon.claim_type(p.text, p.name) AS claim_type
+  FROM phrases p
+  JOIN workspace.datathon.ref_services s
+    ON workspace.datathon.phrase_matches(p.text,
+         CASE WHEN p.field = 'equipment' THEN concat(s.equipment_regex, '|', s.text_regex) ELSE s.text_regex END,
+         s.exclude_regex, s.service_key)
+),
+matched_agg AS (
+  SELECT facility_id, service_key,
+    transform(array_sort(collect_list(CASE WHEN field <> 'description' THEN
+        named_struct('k', concat(CASE field WHEN 'procedures' THEN '1' WHEN 'capabilities' THEN '2' ELSE '3' END, lpad(CAST(pos AS STRING), 4, '0')),
+                     'text', text, 'field', field, 'claim_type', claim_type) END)),
+      c -> named_struct('text', c.text, 'field', c.field, 'claim_type', c.claim_type)) AS claims_cited,
+    array_sort(collect_list(CASE WHEN field = 'description' THEN named_struct('pos', pos, 'text', text, 'claim_type', claim_type) END)) AS desc_claims
+  FROM matched
+  GROUP BY facility_id, service_key
+),
+claims AS (
   SELECT
-    f.facility_id, s.service_key, s.service_label, s.needs_hospital, s.equipment_alone_counts,
+    f.facility_id, s.service_key, s.service_label, s.needs_hospital, s.equipment_alone_counts, s.text_regex,
     f.name, f.facility_type, f.operator_type, f.lat, f.lon, f.district, f.state, f.pincode, f.address_text,
     f.location_confidence, f.location_note, f.possible_merged_record, f.far_places_in_text, f.quality_flags,
     f.number_doctors, f.capacity_beds, f.year_established, f.n_source_domains, f.source_urls,
-    f.official_phone, f.official_website, f.email, f.facebook_link, f.city_raw,
-    -- verbatim phrases that mention the service
-    filter(f.procedures,   x -> lower(x) RLIKE s.text_regex)      AS proc_hits,
-    filter(f.capabilities, x -> lower(x) RLIKE s.text_regex)      AS cap_hits,
-    filter(f.equipment,    x -> lower(x) RLIKE s.equipment_regex OR lower(x) RLIKE s.text_regex) AS equip_hits,
-    exists(f.equipment,    x -> lower(x) RLIKE s.text_regex)      AS equip_names_service,  -- e.g. "NICU with 25 beds and incubators"
-    nullif(regexp_extract(f.description, concat('(?i)([^.]*(?:', s.text_regex, ')[^.]*)'), 1), '') AS desc_hit,
+    f.official_phone, f.official_website, f.email, f.facebook_link, f.city_raw, f.scope_family,
+    coalesce(m.claims_cited, array()) AS claims_cited,
+    coalesce(m.desc_claims, array()) AS desc_claims,
     array_intersect(transform(f.specialties, x -> lower(x)), s.specialties) AS spec_hits
   FROM workspace.datathon.silver_facilities f
   CROSS JOIN workspace.datathon.ref_services s
+  LEFT JOIN matched_agg m ON m.facility_id = f.facility_id AND m.service_key = s.service_key
+  -- specialty scope gate: dental-only facilities match nothing here; eye-only facilities only match cataract
+  WHERE NOT coalesce(f.scope_family = 'dental', false)
+    AND NOT coalesce(f.scope_family = 'eye' AND s.service_key <> 'cataract', false)
 ),
-neg AS (  -- separate out negated / referral-only mentions ("no dialysis", "referred to ... for cath lab")
-  SELECT m.*,
-    filter(concat(proc_hits, cap_hits), x -> lower(x) RLIKE '\\b(no|not|without|lacks?|unavailable|refer(red|ral|s)?)\\b') AS negated_hits
-  FROM m
-),
-e AS (
-  SELECT neg.*,
-    array_except(proc_hits, negated_hits) AS procedures_cited,
-    array_except(cap_hits,  negated_hits) AS capabilities_cited
-  FROM neg
+counted AS (
+  SELECT claims.*,
+    transform(filter(claims_cited, c -> c.field = 'procedures'   AND c.claim_type IN ('direct', 'list_dump')), c -> c.text) AS procedures_cited,
+    transform(filter(claims_cited, c -> c.field = 'capabilities' AND c.claim_type IN ('direct', 'list_dump')), c -> c.text) AS capabilities_cited,
+    transform(filter(claims_cited, c -> c.field = 'equipment'    AND c.claim_type IN ('direct', 'list_dump')), c -> c.text) AS equip_hits,
+    transform(filter(claims_cited, c -> c.claim_type = 'negated'), c -> c.text)     AS negated_hits,
+    transform(filter(claims_cited, c -> c.claim_type = 'hedged'), c -> c.text)      AS hedged_hits,
+    transform(filter(claims_cited, c -> c.claim_type = 'third_party'), c -> c.text) AS third_party_hits,
+    size(filter(claims_cited, c -> c.field = 'procedures'   AND c.claim_type = 'direct')) AS n_proc,
+    size(filter(claims_cited, c -> c.field = 'capabilities' AND c.claim_type = 'direct')) AS n_cap,
+    size(filter(claims_cited, c -> c.field IN ('procedures', 'capabilities') AND c.claim_type = 'list_dump')) AS n_list,
+    -- e.g. "NICU with 25 beds and incubators": an equipment line that itself names the service
+    exists(claims_cited, c -> c.field = 'equipment' AND c.claim_type = 'direct' AND lower(c.text) RLIKE text_regex) AS equip_names_service,
+    get(filter(desc_claims, d -> d.claim_type IN ('direct', 'list_dump')), 0).text AS desc_hit
+  FROM claims
 ),
 scored AS (
-  SELECT e.*,
-    size(procedures_cited) AS n_proc, size(capabilities_cited) AS n_cap,
+  SELECT counted.*,
     -- generic equipment only counts when the service itself is also mentioned
-    CASE WHEN equipment_alone_counts OR coalesce(equip_names_service, false)
-           OR size(procedures_cited) + size(capabilities_cited) > 0 OR desc_hit IS NOT NULL
+    CASE WHEN equipment_alone_counts OR equip_names_service OR n_proc + n_cap + n_list > 0 OR desc_hit IS NOT NULL
          THEN size(equip_hits) ELSE 0 END AS n_equip
-  FROM e
+  FROM counted
 ),
 scored_kept AS (
-  SELECT * FROM scored WHERE n_proc + n_cap + n_equip + size(spec_hits) > 0 OR desc_hit IS NOT NULL
+  SELECT * FROM scored
+  WHERE n_proc + n_cap + n_list + n_equip + size(spec_hits) + size(hedged_hits) > 0 OR desc_hit IS NOT NULL
 ),
 tiers AS (
   SELECT scored_kept.*,
     CASE
       WHEN (n_proc > 0 OR n_cap > 0) AND n_equip > 0 THEN 'strong'
       WHEN n_proc > 0 AND n_cap > 0 AND n_source_domains >= 3 THEN 'strong'
-      WHEN n_proc > 0 OR n_cap > 0 OR n_equip > 0 THEN 'moderate'
+      WHEN n_proc > 0 OR n_cap > 0 OR n_equip > 0 OR n_list > 0 THEN 'moderate'
       ELSE 'weak'
     END AS evidence_tier,
     -- score components
     least(60,
         CASE WHEN n_proc > 0 THEN 25 ELSE 0 END
       + CASE WHEN n_cap > 0 THEN 15 ELSE 0 END
+      + CASE WHEN n_proc + n_cap = 0 AND n_list > 0 THEN 10 ELSE 0 END   -- named only inside a long department list
       + CASE WHEN n_equip > 0 THEN 15 ELSE 0 END
       + CASE WHEN desc_hit IS NOT NULL THEN 5 ELSE 0 END
       + CASE WHEN size(spec_hits) > 0 THEN 5 ELSE 0 END)                         AS pts_evidence,
@@ -195,29 +324,36 @@ SELECT
   greatest(0, least(100, pts_evidence + pts_sources + pts_scale + pts_location
                          + pen_merged + pen_facility_type + pen_negated + pen_numbers)) AS trust_score,
   pts_evidence, pts_sources, pts_scale, pts_location, pen_merged, pen_facility_type, pen_negated, pen_numbers,
-  -- citations (verbatim from the record)
+  -- citations (verbatim from the record); only claims that count are in *_cited, every hit is in claims_cited
   procedures_cited, capabilities_cited, CASE WHEN n_equip > 0 THEN equip_hits ELSE array() END AS equipment_cited, desc_hit AS description_cited, spec_hits AS specialties_cited,
   negated_hits AS negated_or_referral_mentions,
   concat_ws(' · ',
-    CASE WHEN n_proc > 0  THEN concat('Procedures: "', array_join(slice(procedures_cited, 1, 2), '"; "'), '"') END,
-    CASE WHEN n_cap > 0   THEN concat('Capabilities: "', array_join(slice(capabilities_cited, 1, 2), '"; "'), '"') END,
+    CASE WHEN size(procedures_cited) > 0   THEN concat('Procedures: "', array_join(slice(procedures_cited, 1, 2), '"; "'), '"') END,
+    CASE WHEN size(capabilities_cited) > 0 THEN concat('Capabilities: "', array_join(slice(capabilities_cited, 1, 2), '"; "'), '"') END,
     CASE WHEN n_equip > 0 THEN concat('Equipment: "', array_join(slice(equip_hits, 1, 2), '"; "'), '"') END,
-    CASE WHEN n_proc + n_cap + n_equip = 0 AND desc_hit IS NOT NULL THEN concat('Description: "', trim(desc_hit), '"') END,
-    CASE WHEN n_proc + n_cap + n_equip = 0 AND size(spec_hits) > 0 THEN concat('Specialty listed: ', array_join(spec_hits, ', ')) END
+    CASE WHEN n_proc + n_cap + n_list + n_equip = 0 AND desc_hit IS NOT NULL THEN concat('Description: "', trim(desc_hit), '"') END,
+    CASE WHEN n_proc + n_cap + n_list + n_equip = 0 AND desc_hit IS NULL AND size(hedged_hits) > 0 THEN concat('Unconfirmed: "', get(hedged_hits, 0), '"') END,
+    CASE WHEN n_proc + n_cap + n_list + n_equip = 0 AND size(spec_hits) > 0 THEN concat('Specialty listed: ', array_join(spec_hits, ', ')) END
   ) AS evidence_summary,
   array_compact(array(
-    CASE WHEN n_proc + n_cap + n_equip = 0 AND desc_hit IS NULL THEN 'Only a related specialty is listed; the service itself is never mentioned.' END,
-    CASE WHEN n_proc + n_cap + n_equip = 0 AND desc_hit IS NOT NULL THEN 'Mentioned only in the general description, not in the listed procedures or capabilities.' END,
+    CASE WHEN n_proc + n_cap + n_list + n_equip = 0 AND desc_hit IS NULL AND size(hedged_hits) = 0 THEN 'Only a related specialty is listed; the service itself is never mentioned.' END,
+    CASE WHEN n_proc + n_cap + n_list + n_equip = 0 AND desc_hit IS NOT NULL THEN 'Mentioned only in the general description, not in the listed procedures or capabilities.' END,
+    CASE WHEN n_proc + n_cap = 0 AND n_list > 0 THEN 'The service is named only inside a long list of departments, not as a stated service.' END,
+    CASE WHEN size(hedged_hits) > 0 THEN concat('Some evidence is a guess, not a statement (e.g. from photos): "', get(hedged_hits, 0), '". It does not count as confirmation.') END,
+    CASE WHEN size(third_party_hits) > 0 THEN concat('Some mentions refer to another institution or a publication, not this facility''s own service: "', get(third_party_hits, 0), '".') END,
     CASE WHEN evidence_tier = 'moderate' AND n_equip = 0 THEN 'No supporting equipment is listed for this service.' END,
     CASE WHEN possible_merged_record THEN concat('This record may combine more than one facility (its text also mentions ', array_join(far_places_in_text, ', '), ').') END,
     CASE WHEN pen_facility_type < 0 THEN concat('Listed as a ', facility_type, '; this service normally requires a hospital.') END,
-    CASE WHEN size(negated_hits) > 0 THEN concat('Some mentions are negative or referral-only: "', negated_hits[0], '".') END,
+    CASE WHEN size(negated_hits) > 0 THEN concat('Some mentions are negative or referral-only: "', get(negated_hits, 0), '".') END,
     CASE WHEN location_confidence IN ('low', 'none') THEN location_note END,
     CASE WHEN n_source_domains <= 1 THEN 'Backed by a single source website.' END,
+    CASE WHEN array_contains(quality_flags, 'implausible_doctor_count') THEN 'The reported doctor count is implausibly low for the bed count, so it is not shown.' END,
     CASE WHEN number_doctors IS NULL AND capacity_beds IS NULL THEN 'Facility size (doctors, beds) is not reported.' END
   )) AS caveats,
   number_doctors, capacity_beds, year_established, n_source_domains, source_urls,
-  official_phone, official_website, email, facebook_link, city_raw
+  official_phone, official_website, email, facebook_link, city_raw,
+  -- appended: every matched phrase with its field and claim type (direct, list_dump, hedged, third_party, negated)
+  claims_cited, n_proc + n_cap AS n_direct_mentions, n_list AS n_list_mentions, scope_family, quality_flags
 FROM tiers;
 
 -- COMMAND ----------

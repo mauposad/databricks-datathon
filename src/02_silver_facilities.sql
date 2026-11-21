@@ -10,7 +10,8 @@
 -- MAGIC | ~88 rows are CSV fragments (text shifted into wrong columns) | keep only `organization_type = 'facility'` |
 -- MAGIC | duplicate rows for the same entity | one row per `cluster_id` (keeps the most complete; remembers how many were collapsed) |
 -- MAGIC | list columns stored as JSON strings, with repeats and placeholders ("no specific equipment information…") | parse to arrays, de-duplicate, drop placeholders |
--- MAGIC | doctors / beds / year stored as text, some impossible | cast, null out implausible values, flag it |
+-- MAGIC | doctors / beds / year stored as text, some impossible | cast, null out implausible values, flag it (incl. 200+ beds with < 10 doctors) |
+-- MAGIC | dental or eye clinics matching general keywords ("atraumatic extraction" → trauma) | `scope_family` = dental / eye when all clinical specialties are dental / eye care |
 -- MAGIC | 234 spellings of "state" | normalise via alias table; final state/district comes from location, not free text |
 -- MAGIC | coordinates and PIN code disagree for ~1 in 5 facilities | compare coordinates vs PIN vs city/state text, pick the side with more support, record a confidence |
 -- MAGIC | some records merge several facilities | flag records whose own text places them in another state or district |
@@ -231,7 +232,10 @@ final_geo AS (
     coalesce(
       CASE WHEN location_check IN ('agree', 'near') OR location_source = 'pin_centroid' THEN pin_state ELSE coalesce(coords_state, pin_state) END,
       claimed_state) AS state,
-    concat_ws(' ', array_join(capabilities, ' '), description) AS evidence_text
+    concat_ws(' ', array_join(capabilities, ' '), description) AS evidence_text,
+    -- clinical specialties minus ancillary ones that dental/eye clinics also list (radiology for X-rays, etc.)
+    filter(transform(specialties, x -> lower(x)),
+           x -> x NOT IN ('radiology', 'familymedicine', 'anesthesia', 'anesthesiology', 'pathology', 'preventivemedicine')) AS core_specialties
   FROM located l
 ),
 state_mentions AS (  -- states named in the record's own descriptive text
@@ -283,9 +287,18 @@ SELECT
   round(f.km_coords_to_pin, 1)                       AS km_coords_to_pin,
   f.pin_district, f.pin_state, f.pin_n_districts, f.coords_district, f.coords_state, f.claimed_state,
   f.city_raw, f.state_raw, f.postcode_raw, f.address_text, f.lat_raw, f.lon_raw,
-  -- scale
-  CASE WHEN f.doctors_raw  BETWEEN 1 AND 3000 THEN f.doctors_raw END   AS number_doctors,
+  -- scale (a 200+ bed hospital reporting fewer than 10 doctors is almost certainly a partial count, e.g. KGMU = 1)
+  CASE WHEN f.doctors_raw  BETWEEN 1 AND 3000
+        AND NOT (f.capacity_raw BETWEEN 200 AND 5000 AND f.doctors_raw < 10) THEN f.doctors_raw END AS number_doctors,
   CASE WHEN f.capacity_raw BETWEEN 1 AND 5000 THEN f.capacity_raw END  AS capacity_beds,
+  -- specialty scope: a facility whose clinical specialties are all dental (or all eye care) cannot match
+  -- general services like trauma or NICU, even if a keyword appears ("atraumatic extraction", "tooth trauma")
+  CASE
+    WHEN size(f.core_specialties) > 0 AND forall(f.core_specialties, x -> x RLIKE '^(dent|oral)|odont|dentistry|maxillofacial|cleft') THEN 'dental'
+    WHEN size(f.core_specialties) > 0 AND forall(f.core_specialties, x -> x RLIKE 'ophthalm|retina|cornea|glaucoma|oculoplast|strabism|cataract|uveitis|optometr|vitreo|^eye') THEN 'eye'
+    WHEN size(f.core_specialties) = 0 AND (f.facility_type = 'dentist' OR lower(f.name) RLIKE '\\bdental\\b|dentist') THEN 'dental'
+    WHEN size(f.core_specialties) = 0 AND lower(f.name) RLIKE '\\beye\\b|netra|nethra|ophthalm|lasik' THEN 'eye'
+  END AS scope_family,
   CASE WHEN f.year_raw BETWEEN 1800 AND year(current_date()) THEN f.year_raw END AS year_established,
   -- claims (kept verbatim for citation)
   f.description, f.specialties, f.procedures, f.equipment, f.capabilities,
@@ -308,6 +321,7 @@ SELECT
     CASE WHEN (f.doctors_raw IS NOT NULL AND NOT f.doctors_raw BETWEEN 1 AND 3000)
            OR (f.capacity_raw IS NOT NULL AND NOT f.capacity_raw BETWEEN 1 AND 5000)
            OR (f.year_raw IS NOT NULL AND NOT f.year_raw BETWEEN 1800 AND year(current_date())) THEN 'implausible_number_removed' END,
+    CASE WHEN f.doctors_raw BETWEEN 1 AND 9 AND f.capacity_raw BETWEEN 200 AND 5000 THEN 'implausible_doctor_count' END,
     CASE WHEN f.n_raw_rows > 1 THEN 'duplicate_rows_collapsed' END
   )) AS quality_flags_base
 FROM final_geo f
