@@ -9,7 +9,8 @@ healthcare dataset in Databricks.
 - CLI profile: each collaborator uses their own local profile name
 - Shared workspace area: `/Workspace/Datathon-2026-Shared`
 - Git-backed Databricks Repos: planned
-- Unity Catalog destination: to be selected
+- Unity Catalog catalog: `databricks_virtue_foundation_dataset_dais_2026`
+- Unity Catalog schema: `virtue_foundation_dataset`
 - Compute: to be selected
 
 The checked-in [`databricks.yml`](databricks.yml) intentionally does not create
@@ -111,8 +112,13 @@ workspace.
 
 Before deploying Databricks resources, the team still needs to choose:
 
-1. The Unity Catalog catalog and schema for the Marketplace data.
-2. Whether analysis will use serverless, an existing shared compute resource, or
+1. Whether analysis will use serverless, an existing shared compute resource, or
    a job cluster.
-3. The first resource to manage as code, such as an ingestion notebook, SQL
+2. The first resource to manage as code, such as an ingestion notebook, SQL
    warehouse query, job, or pipeline.
+
+The shared dataset can be referenced with the fully qualified namespace:
+
+```text
+databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.<table>
+```
