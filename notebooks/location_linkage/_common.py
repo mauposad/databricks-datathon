@@ -417,6 +417,27 @@ SCHEMES = {
         definition="H3 cell (resolution `h3_res` from notebook 00) containing the facility coordinates. Equal-area "
                    "cells remove any dependence on administrative boundaries.",
         shapes="H3 cell boundaries"),
+    # Urban-centre schemes: built by notebook 13 from GHSL (not by 00), passed to RegionAnalysis via extra_labels
+    "urban_tier_fac_end": dict(
+        title="Urban-centre population tier at the facility point", n_hint="3 tiers + outside",
+        definition="Population band of the GHSL urban centre (2025) whose polygon contains the facility coordinates; "
+                   "`(outside urban centres)` otherwise.",
+        shapes="GHSL UCDB R2024A polygons dissolved by tier"),
+    "urban_tier_pin_end": dict(
+        title="Urban-centre population tier at the pincode point", n_hint="3 tiers + outside",
+        definition="Population band of the GHSL urban centre (2025) whose polygon contains the pincode point "
+                   "(primary strategy); `(outside urban centres)` otherwise.",
+        shapes="GHSL UCDB R2024A polygons dissolved by tier"),
+    "urban_centre_fac_end": dict(
+        title="Urban centre containing the facility point", n_hint="~1,900 + outside",
+        definition="GHSL urban centre (2025) whose polygon contains the facility coordinates; "
+                   "`(outside urban centres)` otherwise.",
+        shapes="GHSL UCDB R2024A polygons"),
+    "urban_centre_pin_end": dict(
+        title="Urban centre containing the pincode point", n_hint="~1,900 + outside",
+        definition="GHSL urban centre (2025) whose polygon contains the pincode point (primary strategy); "
+                   "`(outside urban centres)` otherwise.",
+        shapes="GHSL UCDB R2024A polygons"),
 }
 
 # COMMAND ----------
@@ -461,7 +482,10 @@ def dist_stats(g):
 class RegionAnalysis:
     """All tables/visuals for one region scheme. Call the methods cell by cell from a region notebook."""
 
-    def __init__(self, scheme, strategy=None, max_region_panels=36, min_n_panels=5, max_bars=60):
+    def __init__(self, scheme, strategy=None, max_region_panels=36, min_n_panels=5, max_bars=60,
+                 extra_labels=None, extra_shapes=None):
+        """extra_labels: optional pandas frame (fac_row_id + `<scheme>`, `<scheme>__fac_pt`, `<scheme>__pin_pt`)
+        for a scheme computed outside notebook 00. extra_shapes: optional GeoDataFrame (region, geometry)."""
         self.scheme = scheme
         self.cfg = SCHEMES[scheme]
         self.strategy = strategy or PRIMARY_STRATEGY
@@ -470,6 +494,9 @@ class RegionAnalysis:
         self.max_bars = max_bars
 
         fr = read_pdf("facility_regions")
+        if extra_labels is not None:
+            fr = fr.drop(columns=[c for c in extra_labels.columns if c != "fac_row_id" and c in fr.columns])
+            fr = fr.merge(extra_labels, on="fac_row_id", how="left")
         fr["region"] = fr[scheme].fillna(UNASSIGNED)
         self.fr = fr
         pairs = read_pdf("pairs")
@@ -483,7 +510,10 @@ class RegionAnalysis:
         self.prim["bucket"] = pd.Categorical(self.prim["bucket"], BUCKET_LABELS, ordered=True)
 
         shapes = read_pdf("region_shapes")
-        self.shapes = gdf_from_wkt(shapes[shapes["scheme"] == scheme]) if (shapes["scheme"] == scheme).any() else None
+        if extra_shapes is not None:
+            self.shapes = extra_shapes
+        else:
+            self.shapes = gdf_from_wkt(shapes[shapes["scheme"] == scheme]) if (shapes["scheme"] == scheme).any() else None
         st = shapes[shapes["scheme"] == "dir_state"]
         self.basemap = gdf_from_wkt(st)
         self.summary = None
@@ -669,10 +699,13 @@ class RegionAnalysis:
         neither = d[(d["fac_point_status"] != "OK") & d["pin_lat"].isna()]
         return pin_bad, fac_bad, neither
 
-    def pairs_map(self, min_line_km=5):
+    def pairs_map(self, min_line_km=5, underlay_traces=None, overlay_traces=None, title=None):
         """National interactive map: every usable pair as a line (pincode point -> facility point) coloured by
-        distance bucket, a dot at the facility end, plus all non-OK categories at whichever point exists."""
+        distance bucket, a dot at the facility end, plus all non-OK categories at whichever point exists.
+        underlay_traces / overlay_traces: extra plotly geo traces drawn below / above the pairs."""
         fig = go.Figure()
+        for t in underlay_traces or []:
+            fig.add_trace(t)
         if self.shapes is not None and not self.shapes.empty and len(self.shapes) <= 800:
             lo, la = outline_lines(self.shapes, 0.02)
             fig.add_trace(go.Scattergeo(lon=lo, lat=la, mode="lines", line=dict(width=0.5, color=BASEMAP_EDGE),
@@ -703,12 +736,17 @@ class RegionAnalysis:
                     marker=dict(size=7, color=color, symbol=symbols.get(sub, "circle"), line=dict(width=1, color=color)),
                     customdata=np.stack([g["name"].fillna(""), g["pin_clean"].fillna(""), g["region"]], axis=1) if len(g) else None,
                     hovertemplate="%{customdata[0]}<br>pin %{customdata[1]} - %{customdata[2]}<extra></extra>"))
-        india_geo_layout(fig, f"Pincode point -> facility point, {self.cfg['title']} "
-                              f"(lines drawn for pairs >= {min_line_km} km; {len(neither)} rows have neither point)")
+        for t in overlay_traces or []:
+            fig.add_trace(t)
+        india_geo_layout(fig, title or f"Pincode point -> facility point, {self.cfg['title']} "
+                                       f"(lines drawn for pairs >= {min_line_km} km; {len(neither)} rows have neither point)")
         show(fig, height=850)
 
-    def region_panels(self, regions=None, cols=4):
-        """Small multiples: one zoomed map per region with its outline, its pairs and its non-OK points."""
+    def region_panels(self, regions=None, cols=4, frame_mode="shape+points", pad_frac=0.15):
+        """Small multiples: one zoomed map per region with its outline, its pairs and its non-OK points.
+        frame_mode="shape+points": largest polygon part extended to the central 90% of pincode points (default).
+        frame_mode="shape": the region's own polygon bounds only (for small regions like cities); the title then counts
+        pairs with either end outside the frame."""
         if self.summary is None:
             self.summary_stats(write=False)
         p = self.summary[(self.summary["strategy"] == self.strategy) & (self.summary["region"] != "ALL (national)")]
@@ -734,10 +772,12 @@ class RegionAnalysis:
             # cover the central 90% of its pincode points
             pts = d[["pin_lon", "pin_lat"]].dropna().to_numpy()
             boxes = []
-            if shape is not None and not shape.empty:
+            if frame_mode == "shape" and shape is not None and not shape.empty:
+                boxes.append(tuple(shape.total_bounds))
+            elif shape is not None and not shape.empty:
                 parts = [p for geom in shape.geometry for p in getattr(geom, "geoms", [geom])]
                 boxes.append(max(parts, key=lambda p: p.area).bounds)
-            if len(pts):
+            if len(pts) and (frame_mode != "shape" or not boxes):
                 lo_, hi_ = np.nanpercentile(pts, 5, axis=0), np.nanpercentile(pts, 95, axis=0)
                 boxes.append((lo_[0], lo_[1], hi_[0], hi_[1]))
             if not boxes:
@@ -745,7 +785,7 @@ class RegionAnalysis:
                 continue
             b_ = np.array(boxes)
             x0, y0, x1, y1 = b_[:, 0].min(), b_[:, 1].min(), b_[:, 2].max(), b_[:, 3].max()
-            pad = max(x1 - x0, y1 - y0, 0.2) * 0.15
+            pad = max(x1 - x0, y1 - y0, 0.2) * pad_frac
             self.basemap.boundary.plot(ax=ax, color=BASEMAP_EDGE, linewidth=0.4)
             if shape is not None and not shape.empty:
                 shape.plot(ax=ax, color="#eef4fc", edgecolor="#52514e", linewidth=1)
@@ -762,14 +802,19 @@ class RegionAnalysis:
                     sym = symbols.get(sub, "circle")
                     style = dict(facecolors="none", edgecolors=color) if sym == "circle-open" else dict(c=color)
                     ax.scatter(g["plot_lon"], g["plot_lat"], s=22, marker=MPL_MARKERS.get(sym, "o"), zorder=4, **style)
-            out_frame = ((d["fac_lon"] < x0 - pad) | (d["fac_lon"] > x1 + pad) |
-                         (d["fac_lat"] < y0 - pad) | (d["fac_lat"] > y1 + pad)).sum()
+            def _outside(lon, lat):
+                return (lon < x0 - pad) | (lon > x1 + pad) | (lat < y0 - pad) | (lat > y1 + pad)
+            out_frame = _outside(d["fac_lon"], d["fac_lat"])
+            if frame_mode == "shape":
+                out_frame |= _outside(d["pin_lon"], d["pin_lat"])
+            out_frame = int(out_frame.sum())
             ax.set_xlim(x0 - pad, x1 + pad)
             ax.set_ylim(y0 - pad, y1 + pad)
             ax.set_aspect(1 / max(math.cos(math.radians((y0 + y1) / 2)), 0.2))
             ax.set_xticks([]); ax.set_yticks([])
             med = d["dist_km"].median() if len(d) else float("nan")
-            ax.set_title(f"{reg[:38]}\nn={len(d)}  median={med:.1f} km  leaving frame={out_frame}", fontsize=9)
+            frame_lab = "an end outside frame" if frame_mode == "shape" else "leaving frame"
+            ax.set_title(f"{reg[:38]}\nn={len(d)}  median={med:.1f} km  {frame_lab}={out_frame}", fontsize=9)
         handles = [plt.Line2D([], [], color=BUCKET_COLORS[l], lw=2, label=l) for l in BUCKET_LABELS]
         handles += [plt.Line2D([], [], color=PIN_BAD_COLOR, marker=MPL_MARKERS[v], ls="", label=f"pin {k}")
                     for k, v in PIN_BAD_SYMBOLS.items()]

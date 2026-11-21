@@ -41,8 +41,9 @@ To fix a profile that points at the wrong workspace, run `databricks auth logout
 
 ## Notebooks
 
-- `notebooks/location_linkage/`: facility-coordinate vs. pincode-location analysis. `00_build_location_pairs` builds all `bronze_loclink_*` tables. `01`–`10` are one notebook per region definition. `11` covers source disagreement and `12` compares pincode-point strategies. Shared code is in `_common.py`, loaded with `%run ./_common`, and every notebook first runs `%pip install geopandas==1.0.1`. See that folder's README for run order and outputs.
+- `notebooks/location_linkage/`: facility-coordinate vs. pincode-location analysis. `00_build_location_pairs` builds all `bronze_loclink_*` tables. `01`–`10` are one notebook per region definition. `11` covers source disagreement and `12` compares pincode-point strategies. `13` overlays GHSL urban-centre population clusters (external download, CC BY 4.0) on the pairs. Shared code is in `_common.py`, loaded with `%run ./_common`, and every notebook first runs `%pip install geopandas==1.0.1`. See that folder's README for run order and outputs.
 - Region notebooks all write into `bronze_loclink_region_summary` with `replaceWhere scheme=...`, so run them sequentially, not in parallel.
+- Job-run notebook output is capped at 10 MB for `jobs export-run`; notebook 13 sits near it.
 - Serverless runtime has old plotly (5.9: no `Scattermap`; px fails on unused categorical levels) and pandas 1.5.
 
 To test a notebook headlessly: `databricks bundle deploy`, then `databricks jobs submit` a one-time `notebook_task` (no cluster spec = serverless) pointing at `/Workspace/Datathon-2026-Shared/virtue-foundation-india-healthcare-datathon/<user>/files/notebooks/...`. `databricks jobs get-run-output <task_run_id>` shows errors.

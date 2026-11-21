@@ -17,6 +17,11 @@ coordinates, etc.) are kept as their own **pair category** and still drawn on ev
    coordinates, pincode coordinates) disagree, plus shared/default coordinates
 4. `12_pincode_point_strategy_comparison`: evidence for the open team question of how to turn a pincode
    (a cloud of post offices) into one point
+5. `13_population_clusters`: overlays population clusters (GHSL urban centres, 2025, tiers `1M+` /
+   `100k-1M` / `50k-100k`) on the pairs; urban-vs-rural split and per-city stats, with membership taken from
+   the facility point and from the pincode point; error vs distance to the nearest city. Downloads the GHSL
+   regional file (~67 MB) into the volume on first run. Writes four schemes into `bronze_loclink_region_summary`,
+   so don't run it in parallel with 01–10
 
 | # | region definition | groups by |
 |---|---|---|
@@ -46,7 +51,9 @@ All notebooks run on serverless and `%pip install geopandas==1.0.1`. Shared logi
 
 `bronze_loclink_offices`, `_pincodes`, `_pairs` (facility × strategy), `_facility_regions` (region label per
 scheme, measured three ways: definition / at facility point / at pincode point), `_region_shapes`,
-`_adm2_labels`, `_region_summary` (scheme × region × strategy stats), `_state_agreement`.
+`_adm2_labels`, `_region_summary` (scheme × region × strategy stats), `_state_agreement`, `_urban_centres` (GHSL
+India urban centres with tier and WKT), `_urban_pairs` (pairs × strategy with the cluster containing / nearest to
+each end and distance to it).
 
 ## Caveats
 
@@ -54,3 +61,8 @@ scheme, measured three ways: definition / at facility point / at pincode point),
   directory-district outlines are **approximate**: each ADM2 polygon takes the label held by most of the
   geocoded offices inside it.
 - The `__pin_pt` region labels always use the `office_median` pincode point, whatever `primary_strategy` is set to.
+- GHSL urban centres (EC JRC, CC BY 4.0, cite doi:10.2905/1a338be6-7eaf-480c-9664-3a8ade88cbcd) are
+  density-defined clusters, not municipal limits. Contiguous dense belts merge into one very large centre
+  (Hajipur–Muzaffarpur, Kozhikode, Kollam), and satellite towns join their metro (Noida/Gurugram are in "New Delhi").
+- Notebook 13's pincode-end membership uses the `primary_strategy` point; its notebook output is close to the
+  10 MB export limit, so avoid adding large plots there.
