@@ -118,6 +118,7 @@ base AS (
     nullif(officialPhone, 'null')                                AS official_phone,
     nullif(officialWebsite, 'null')                              AS official_website,
     nullif(email, 'null')                                        AS email,
+    CASE WHEN facebookLink RLIKE '^https?://' THEN facebookLink END AS facebook_link,
     concat_ws(', ', nullif(address_line1, 'null'), nullif(address_line2, 'null'), nullif(address_line3, 'null')) AS address_text,
     nullif(trim(address_city), 'null')                           AS city_raw,
     nullif(trim(address_stateOrRegion), 'null')                  AS state_raw,
@@ -291,7 +292,7 @@ SELECT
   f.source_urls,
   size(f.source_urls)                                AS n_source_urls,
   size(array_distinct(transform(f.source_urls, u -> regexp_extract(u, '^https?://(?:www\\.)?([^/]+)', 1)))) AS n_source_domains,
-  f.official_phone, f.official_website, f.email,
+  f.official_phone, f.official_website, f.email, f.facebook_link,
   -- merge signals
   -- informational only (states are often mentioned for referrals, chains, patient origin):
   array_except(coalesce(sm.states_in_text, array()), array_compact(array(f.state, f.claimed_state))) AS other_states_in_text,
