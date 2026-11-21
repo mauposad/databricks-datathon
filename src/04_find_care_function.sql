@@ -62,18 +62,29 @@ RETURNS TABLE (
   why STRING, how STRING, caveats ARRAY<STRING>,
   procedures_cited ARRAY<STRING>, capabilities_cited ARRAY<STRING>, equipment_cited ARRAY<STRING>, description_cited STRING,
   source_urls ARRAY<STRING>, district STRING, state STRING, location_confidence STRING,
-  phone STRING, website STRING, facility_id STRING, searched_service STRING, searched_from STRING)
+  phone STRING, website STRING, facility_id STRING, searched_service STRING, searched_from STRING,
+  -- added for the app: map pins, contact card, extra context
+  lat DOUBLE, lon DOUBLE, address STRING, city STRING, pincode INT, email STRING, facebook STRING,
+  facility_type STRING, operator_type STRING, specialties_cited ARRAY<STRING>,
+  number_doctors INT, capacity_beds INT, n_source_domains INT, distance_score DOUBLE,
+  origin_lat DOUBLE, origin_lon DOUBLE, origin_matched_as STRING,
+  -- added for interpretability: score components as numbers, the matching rule, rejected mentions
+  pts_evidence INT, pts_sources INT, pts_scale INT, pts_location INT,
+  pen_merged INT, pen_facility_type INT, pen_negated INT, pen_numbers INT,
+  negated_or_referral_mentions ARRAY<STRING>, match_pattern STRING, max_km_used DOUBLE, n_candidates INT)
 COMMENT 'Ranked facilities for a service near a place, with cited evidence (why) and score arithmetic (how)'
 RETURN
   WITH loc AS (SELECT * FROM workspace.datathon.resolve_location(place)),
   svc AS (
-    SELECT service_key, service_label FROM workspace.datathon.ref_services
+    SELECT service_key, service_label, text_regex FROM workspace.datathon.ref_services
     WHERE service_key = lower(trim(service)) OR lower(service_label) = lower(trim(service))
        OR array_contains(aliases, lower(trim(service)))
     LIMIT 1
   ),
   cand AS (
     SELECT g.*, svc.service_label AS svc_label, loc.label AS loc_label,
+         svc.text_regex AS match_pattern,
+         loc.lat AS origin_lat, loc.lon AS origin_lon, loc.matched_as AS origin_matched_as,
            workspace.datathon.haversine_km(loc.lat, loc.lon, g.lat, g.lon) AS km
     FROM workspace.datathon.gold_facility_services g
     JOIN svc USING (service_key)
@@ -88,7 +99,8 @@ RETURN
     FROM cand WHERE km <= max_km
   ),
   ranked AS (
-    SELECT *, CAST(row_number() OVER (ORDER BY is_weak, match_score DESC, km) AS INT) AS rnk FROM scored
+    SELECT *, CAST(row_number() OVER (ORDER BY is_weak, match_score DESC, km) AS INT) AS rnk,
+           CAST(count(*) OVER () AS INT) AS n_cand FROM scored
   )
   SELECT
     rnk,
@@ -115,7 +127,14 @@ RETURN
     caveats,
     procedures_cited, capabilities_cited, equipment_cited, description_cited,
     source_urls, district, state, location_confidence,
-    official_phone, official_website, facility_id, svc_label, loc_label
+    official_phone, official_website, facility_id, svc_label, loc_label,
+    lat, lon, address_text, city_raw, pincode, email, facebook_link,
+    facility_type, operator_type, specialties_cited,
+    CAST(number_doctors AS INT), CAST(capacity_beds AS INT), n_source_domains, distance_score,
+    origin_lat, origin_lon, origin_matched_as,
+    CAST(pts_evidence AS INT), CAST(pts_sources AS INT), CAST(pts_scale AS INT), CAST(pts_location AS INT),
+    CAST(pen_merged AS INT), CAST(pen_facility_type AS INT), CAST(pen_negated AS INT), CAST(pen_numbers AS INT),
+    negated_or_referral_mentions, match_pattern, max_km, n_cand
   FROM ranked
   WHERE rnk <= top_n
   ORDER BY rnk;

@@ -129,7 +129,7 @@ WITH m AS (
     f.name, f.facility_type, f.operator_type, f.lat, f.lon, f.district, f.state, f.pincode, f.address_text,
     f.location_confidence, f.location_note, f.possible_merged_record, f.far_places_in_text, f.quality_flags,
     f.number_doctors, f.capacity_beds, f.year_established, f.n_source_domains, f.source_urls,
-    f.official_phone, f.official_website,
+    f.official_phone, f.official_website, f.email, f.facebook_link, f.city_raw,
     -- verbatim phrases that mention the service
     filter(f.procedures,   x -> lower(x) RLIKE s.text_regex)      AS proc_hits,
     filter(f.capabilities, x -> lower(x) RLIKE s.text_regex)      AS cap_hits,
@@ -217,7 +217,7 @@ SELECT
     CASE WHEN number_doctors IS NULL AND capacity_beds IS NULL THEN 'Facility size (doctors, beds) is not reported.' END
   )) AS caveats,
   number_doctors, capacity_beds, year_established, n_source_domains, source_urls,
-  official_phone, official_website
+  official_phone, official_website, email, facebook_link, city_raw
 FROM tiers;
 
 -- COMMAND ----------

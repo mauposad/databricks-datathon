@@ -1,0 +1,14 @@
+# Databricks Apps runtime config. Resources (warehouse, LLM endpoint) are declared in
+# resources/care_finder.app.yml and injected here via valueFrom.
+command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+env:
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql-warehouse
+  - name: LLM_ENDPOINT
+    valueFrom: llm-endpoint
+  - name: ADAPTER
+    value: find_care
+  - name: CARE_CATALOG
+    value: workspace
+  - name: CARE_SCHEMA
+    value: datathon
