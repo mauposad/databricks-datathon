@@ -14,13 +14,14 @@ from ..schema import (Confidence, Evidence, Origin, Query, RecommendResponse, Re
 from .base import Adapter
 
 CONFIDENCE_RULE = ("High: trust ≥ 70 with strong/moderate evidence · Medium: trust 45–69 · Low: trust < 45 · "
+                   "Probable: the procedure is not named, but a large or teaching hospital lists the specialty (call to confirm) · "
                    "Unconfirmed: only weak evidence (a related specialty or a passing mention in the description)")
 
 METHOD = ("Rank = 0.6 × trust + 0.4 × distance, where distance = 100 × (1 − km / radius). "
           "Trust (0–100) = evidence in the record (up to 60) + independent source websites (up to 15) "
           "+ reported size (up to 10) + location certainty (up to 15), minus penalties for possible merged records, "
           "non-hospital facilities for hospital services, negative/referral-only mentions, and implausible numbers. "
-          "Facilities with only weak evidence are never ranked above strong or moderate ones.")
+          "Tiers are ranked as bands: strong/moderate, then probable, then weak, whatever the distance.")
 
 EVIDENCE_FIELDS = [  # (column in find_care, source column in the raw data, label)
     ("procedures_cited", "procedure", "Listed procedure"),
@@ -44,6 +45,8 @@ def _cached(key: str, ttl: float, fn):
 def confidence_for(trust: float, tier: str | None) -> str:
     if tier == "weak":
         return "Unconfirmed"
+    if tier == "probable":
+        return "Probable"
     if trust >= 70:
         return "High"
     if trust >= 45:

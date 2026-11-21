@@ -65,3 +65,19 @@ facility_id,service_key,label,note,facility_name,why_sampled
 08f6031450d65b8003bcc4a6c5814d4b,mri,no,"A brain MRI image ""depicted in facility photos"" is not a scanner",Athani Hospital,known_issue
 08f618c40a454a8c030fa79c76562cc2,nicu,yes,NICU described as state-of-the-art (218 beds),Voluntary Health Services,known_issue
 064fa54e-9fac-43f1-a828-61adc0b923cc,cardiac_surgery,unclear,"Only ""blood vessel bypass surgery""; 100 beds","Dr. Babasaheb Ambedkar Hospital & Research Center, Nagpur",known_issue
+030ab823-111e-4e5b-8885-d063133feadd,emergency_csection,yes,900-bed medical college hospital with obstetrics,"Pacific Medical College and Hospital, Girwa",probable_sample
+08f3d9290082db8603ee76033c91426d,emergency_csection,unclear,"120 beds, obstetrics in a generated specialty list; record is mostly directory listings",Noble Hospital,probable_sample
+00662acd-3504-4706-8176-b72e973dc108,emergency_csection,unclear,"Record mixes Bajwa and Bawa hospitals; IVF named, C-section not",Bajwa Hospital,probable_sample
+048383e8-ea19-4e72-9deb-6529336a9b3e,emergency_csection,yes,"1,300-bed hospital on a medical college campus",C. R. Gardi Hospital,probable_sample
+055ce891-c9cc-4026-b9ab-0c0e726652e9,emergency_csection,yes,300-bed multi-super-speciality general hospital with casualty,Aswini Hospital,probable_sample
+00652f01-4788-44b4-96e4-5dfeeadc48df,emergency_csection,yes,250-bed multispecialty hospital with obstetrics listed,Aster Aadhar Hospital,probable_sample
+02cba469-8404-4d88-9147-bafd1b678514,emergency_csection,unclear,"100 beds, 14 doctors, general surgery focus",Aryan Hospital,probable_sample
+08f600662692c9b203d9f5f8bd6825ca,emergency_csection,yes,Medical college hospital with emergency and critical care departments,Malabar Medical College Hospital & Research Centre,probable_sample
+08f3d80b5a6e436b038b84a65da86ba5,emergency_csection,unclear,100-bed surgical superspeciality hospital; obstetrics not mentioned in text,Kailash Superspeciality Hospital,probable_sample
+08f3c9302b1b550003d56bad9f2e817d,emergency_csection,unclear,Surgical (joint replacement) specialty hospital; obstetrics only in specialty list,Q1 Hospitals,probable_sample
+01f2a3d6-2977-4df5-963e-1f73c01386ab,emergency_csection,yes,250-bed tertiary hospital listing obstetrics,Paras Hospital,probable_sample
+08722ee4-5730-4eee-babf-df1f996345fc,cardiac_surgery,unclear,200 beds with a cardiologist; cardiac surgery not mentioned in text,Sacred Heart Hospital,probable_sample
+08f6189ad8275501035d97a324d8fcd6,emergency_csection,unclear,120-bed tertiary hospital; service list omits obstetrics,Gunam Super Speciality Hospital,probable_sample
+00780d65-85a7-42e1-8b64-0b20240e10d8,emergency_csection,yes,350-bed hospital with an obstetrics and gynecology department,"Apollo Hospital, Bhubaneswar",probable_sample
+0429b033-2faa-4978-b361-7bea01d58a74,emergency_csection,unclear,124 beds; service list omits obstetrics,Curis Hospital,probable_sample
+08f618c4d5804223033f8000be176f50,emergency_csection,unclear,300-bed facility focused on rehabilitation,Vijaya Health Centre,probable_sample

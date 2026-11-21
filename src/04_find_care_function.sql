@@ -9,8 +9,9 @@
 -- MAGIC   **how** (the arithmetic behind the rank).
 -- MAGIC
 -- MAGIC **Ranking rule:** `match_score = 0.6 × trust_score + 0.4 × distance_score`, where
--- MAGIC `distance_score = 100 × (1 − km / max_km)`. Facilities with only *weak* evidence (specialty-only or description-only)
--- MAGIC are never ranked above *strong/moderate* ones; they only appear to fill the list, labelled as unconfirmed.
+-- MAGIC `distance_score = 100 × (1 − km / max_km)`. Tiers are ranked as bands: *strong/moderate* first, then *probable*
+-- MAGIC (large or teaching hospitals that list the specialty but never name the procedure, labelled "call to confirm"),
+-- MAGIC then *weak* (specialty-only or description-only), which only appear to fill the list, labelled as unconfirmed.
 -- MAGIC
 -- MAGIC Trade-off made explicit: a well-evidenced hospital a bit further away beats a poorly evidenced one next door,
 -- MAGIC but distance still matters (40% of the score).
@@ -95,11 +96,12 @@ RETURN
     SELECT *,
            round(100 * greatest(0, 1 - km / max_km)) AS distance_score,
            round(0.6 * trust_score + 0.4 * round(100 * greatest(0, 1 - km / max_km)), 1) AS match_score,
-           evidence_tier = 'weak' AS is_weak
+           evidence_tier = 'weak' AS is_weak,
+           CASE evidence_tier WHEN 'probable' THEN 1 WHEN 'weak' THEN 2 ELSE 0 END AS tier_band
     FROM cand WHERE km <= max_km
   ),
   ranked AS (
-    SELECT *, CAST(row_number() OVER (ORDER BY is_weak, match_score DESC, km) AS INT) AS rnk,
+    SELECT *, CAST(row_number() OVER (ORDER BY tier_band, match_score DESC, km) AS INT) AS rnk,
            CAST(count(*) OVER () AS INT) AS n_cand FROM scored
   )
   SELECT
@@ -110,7 +112,7 @@ RETURN
     CAST(trust_score AS INT),
     match_score,
     concat(
-      CASE WHEN is_weak THEN 'UNCONFIRMED: ' ELSE '' END,
+      CASE WHEN is_weak THEN 'UNCONFIRMED: ' WHEN evidence_tier = 'probable' THEN 'PROBABLE (call to confirm): ' ELSE '' END,
       name, ' is ', CAST(round(km, 1) AS STRING), ' km from ', loc_label, '. ',
       initcap(evidence_tier), ' evidence for ', svc_label, ': ', evidence_summary, '. ',
       'Location: ', location_note) AS why,

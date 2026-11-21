@@ -46,6 +46,10 @@ AS SELECT t.*,
   -- Can equipment alone prove the service? Yes for an MRI/CT scanner, dialysis machine, LINAC or blood bank;
   -- no for generic kit (an operating theatre does not prove C-sections, a ventilator does not prove trauma care).
   t.service_key IN ('dialysis', 'mri', 'ct_scan', 'oncology', 'blood_bank') AS equipment_alone_counts,
+  -- Can a large hospital that lists the specialty be shown as `probable` even if the procedure is never named?
+  -- Yes where that department essentially always provides it (an obstetrics department at a 100+ bed or teaching
+  -- hospital does C-sections); no where it depends on specific kit (cardiology does not imply a cath lab).
+  t.service_key IN ('emergency_csection', 'high_risk_delivery', 'nicu', 'icu', 'trauma', 'cardiac_surgery', 'neurosurgery') AS probable_if_specialty,
   -- A phrase that matches text_regex but also matches exclude_regex is about something else and is ignored.
   x.exclude_regex
 FROM VALUES
@@ -215,18 +219,30 @@ END;
 
 -- COMMAND ----------
 
+-- Every claim phrase of every facility, one row each, with the field it came from and its position.
+-- Specialties are included (field = 'specialties') for the evidence checklist; the service matcher ignores them.
+CREATE OR REPLACE TABLE workspace.datathon.facility_phrases
+COMMENT 'One row per verbatim phrase in a facility record (procedures, capabilities, equipment, description sentences, specialties)'
+AS
+SELECT facility_id, name, 'procedures' AS field, pos, text FROM workspace.datathon.silver_facilities LATERAL VIEW posexplode(procedures) t AS pos, text
+UNION ALL
+SELECT facility_id, name, 'capabilities', pos, text FROM workspace.datathon.silver_facilities LATERAL VIEW posexplode(capabilities) t AS pos, text
+UNION ALL
+SELECT facility_id, name, 'equipment', pos, text FROM workspace.datathon.silver_facilities LATERAL VIEW posexplode(equipment) t AS pos, text
+UNION ALL  -- description, split into sentences
+SELECT facility_id, name, 'description', pos, trim(text) FROM workspace.datathon.silver_facilities
+LATERAL VIEW posexplode(split(coalesce(description, ''), '\\.(\\s|$)')) t AS pos, text
+WHERE length(trim(text)) > 0
+UNION ALL
+SELECT facility_id, name, 'specialties', pos, text FROM workspace.datathon.silver_facilities LATERAL VIEW posexplode(specialties) t AS pos, text;
+
+-- COMMAND ----------
+
 CREATE OR REPLACE TABLE workspace.datathon.gold_facility_services
 COMMENT 'Gold: one row per (facility, service) with evidence. Matched phrases are verbatim from the facility record for citation, each labelled with a claim type; trust_score components are stored separately for transparency.'
 AS
-WITH phrases AS (  -- every claim phrase of every facility, one row each, with its field and position
-  SELECT facility_id, name, 'procedures' AS field, pos, text FROM workspace.datathon.silver_facilities LATERAL VIEW posexplode(procedures) t AS pos, text
-  UNION ALL
-  SELECT facility_id, name, 'capabilities', pos, text FROM workspace.datathon.silver_facilities LATERAL VIEW posexplode(capabilities) t AS pos, text
-  UNION ALL
-  SELECT facility_id, name, 'equipment', pos, text FROM workspace.datathon.silver_facilities LATERAL VIEW posexplode(equipment) t AS pos, text
-  UNION ALL  -- description, split into sentences
-  SELECT facility_id, name, 'description', pos, trim(text) FROM workspace.datathon.silver_facilities
-  LATERAL VIEW posexplode(split(coalesce(description, ''), '\\.(\\s|$)')) t AS pos, text
+WITH phrases AS (
+  SELECT * FROM workspace.datathon.facility_phrases WHERE field <> 'specialties'
 ),
 matched AS (  -- phrases that mention a service (regex hit, not excluded), classified by claim type
   SELECT p.facility_id, s.service_key, p.field, p.pos, p.text,
@@ -358,11 +374,270 @@ FROM tiers;
 
 -- COMMAND ----------
 
+-- MAGIC %md
+-- MAGIC ## Evidence checklist for the headline services
+-- MAGIC
+-- MAGIC For dialysis, emergency C-section, NICU, trauma, cardiac surgery and MRI, the evidence points (≤60) come from a
+-- MAGIC list of **evidence dimensions** instead of the generic keyword rule. These are things a record can say that make
+-- MAGIC the service more credible; they are *not a clinical checklist* and not a standard of care.
+-- MAGIC
+-- MAGIC * a check is `found` when a direct (or department-list) phrase in the listed fields matches its regex, or when the
+-- MAGIC   linked service (e.g. blood bank for C-section) has strong/moderate evidence at the same facility;
+-- MAGIC * `contradicted` when the only matching phrase is negative ("no in-house CT scanner");
+-- MAGIC * `unknown` otherwise. **Missing is unknown: 0 points, never a penalty.**
+-- MAGIC
+-- MAGIC Points per service sum to 60, so `pts_evidence` keeps its range.
+
+-- COMMAND ----------
+
+CREATE OR REPLACE TABLE workspace.datathon.ref_service_requirements
+COMMENT 'Evidence dimensions per headline service (not a clinical checklist). Points per service sum to 60. Regexes are applied to lower-cased phrases.'
+AS SELECT * FROM VALUES
+  ('emergency_csection', 1, 'csection_named', 'C-section named explicitly',
+   'c-section|c section|caesarean|cesarean|\\blscs\\b', array('procedures', 'capabilities', 'equipment', 'description'), 20, CAST(NULL AS STRING)),
+  ('emergency_csection', 2, 'operating_theatre', 'Operating theatre',
+   'operation theat|operating theat|\\bots?\\b|operating room|surgical suite', array('equipment', 'capabilities', 'description'), 10, NULL),
+  ('emergency_csection', 3, 'anaesthesia', 'Anaesthesia',
+   'ana?esthe', array('specialties', 'equipment', 'capabilities', 'procedures'), 10, NULL),
+  ('emergency_csection', 4, 'blood', 'Blood available on site',
+   'blood bank|blood storage|blood transfusion|blood cent(re|er)', array('capabilities', 'equipment', 'description'), 10, 'blood_bank'),
+  ('emergency_csection', 5, 'obstetrics_dept', 'Obstetrics department',
+   'obstetric|gyn(a)?ecolog|maternity', array('specialties', 'capabilities', 'procedures'), 5, NULL),
+  ('emergency_csection', 6, 'round_the_clock', '24×7 / emergency cover',
+   '24 ?[x/*] ?7|24 hours|round[- ]the[- ]clock|emergency obstetric|casualty|emergency (department|services?|care|ward|room|unit)', array('capabilities', 'procedures', 'description'), 5, 'emergency_24x7'),
+
+  ('nicu', 1, 'nicu_named', 'NICU named explicitly',
+   '\\bnicu\\b|neonatal intensive|newborn intensive|\\bsncu\\b|neonatal icu|level (ii|iii|2|3) neonatal', array('procedures', 'capabilities', 'equipment', 'description'), 20, NULL),
+  ('nicu', 2, 'neonatal_equipment', 'Neonatal equipment (incubator, warmer, phototherapy, CPAP)',
+   'incubator|radiant warmer|infant warmer|phototherapy|neonatal ventilator|bubble cpap|\\bcpap\\b', array('equipment', 'capabilities', 'procedures'), 15, NULL),
+  ('nicu', 3, 'neonatology_dept', 'Neonatology department',
+   'neonat|perinat', array('specialties', 'capabilities'), 10, NULL),
+  ('nicu', 4, 'nicu_scale', 'NICU level or bed count stated',
+   'level (ii|iii|iv|2|3|4)\\b|\\b[0-9]+[- ]?(bed(ded)?|cots?)\\b[^,;]{0,25}(nicu|neonatal)|(nicu|neonatal icu)[^,;]{0,25}\\b[0-9]+[- ]?(beds?|cots?)\\b', array('procedures', 'capabilities', 'equipment', 'description'), 5, NULL),
+  ('nicu', 5, 'obstetrics_onsite', 'Deliveries on site',
+   'obstetric|gyn(a)?ecolog|maternity|labou?r room|deliver', array('specialties', 'capabilities', 'procedures'), 5, NULL),
+  ('nicu', 6, 'round_the_clock', '24×7 cover',
+   '24 ?[x/*] ?7|24 hours|round[- ]the[- ]clock', array('capabilities', 'procedures', 'description'), 5, 'emergency_24x7'),
+
+  ('dialysis', 1, 'dialysis_named', 'Dialysis named explicitly',
+   'dialysis|haemodialysis|hemodialysis|renal replacement|\\bcrrt\\b', array('procedures', 'capabilities', 'description'), 20, NULL),
+  ('dialysis', 2, 'dialysis_equipment', 'Dialysis machines / unit',
+   'dialysis (machine|unit|cent(re|er)|station|chair|bed|ward)|dialy[sz]er|h(a)?emodialysis machine|\\bro (water|plant)|\\bcrrt\\b', array('equipment', 'capabilities'), 15, NULL),
+  ('dialysis', 3, 'nephrology', 'Nephrology department',
+   'nephrolog', array('specialties', 'capabilities', 'procedures'), 10, NULL),
+  ('dialysis', 4, 'dialysis_scale', 'Number of machines / beds stated',
+   '\\b[0-9]+[- ]?(dialysis )?(machines?|stations?|chairs?|beds?)\\b[^,;]{0,25}dialysis|dialysis[^,;]{0,30}\\b[0-9]+[- ]?(machines?|stations?|chairs?|beds?)\\b', array('procedures', 'capabilities', 'equipment', 'description'), 5, NULL),
+  ('dialysis', 5, 'icu', 'ICU on site',
+   NULL, array('capabilities'), 5, 'icu'),
+  ('dialysis', 6, 'round_the_clock', '24×7 / emergency dialysis',
+   '24 ?[x/*] ?7|24 hours|round[- ]the[- ]clock|emergency dialysis', array('capabilities', 'procedures', 'description'), 5, NULL),
+
+  ('trauma', 1, 'trauma_named', 'Trauma / accident care named explicitly',
+   '\\btrauma\\b|polytrauma|traumatolog|\\baccidents?\\b|road traffic', array('procedures', 'capabilities', 'description'), 20, NULL),
+  ('trauma', 2, 'emergency_dept', 'Emergency department / casualty',
+   'casualty|emergency (department|ward|room|unit|services?)|accident (and|&) emergency', array('capabilities', 'procedures', 'description'), 10, 'emergency_24x7'),
+  ('trauma', 3, 'ct_scan', 'CT scanner',
+   '\\bct\\b|ct scan|computed tomography', array('equipment', 'capabilities'), 10, 'ct_scan'),
+  ('trauma', 4, 'blood', 'Blood bank',
+   'blood bank|blood storage|blood transfusion', array('capabilities', 'equipment'), 5, 'blood_bank'),
+  ('trauma', 5, 'icu', 'ICU',
+   '\\bicu\\b|intensive care|critical care', array('capabilities', 'equipment'), 5, 'icu'),
+  ('trauma', 6, 'surgical_specialties', 'Orthopaedic / neuro / general surgery',
+   'orthop|neurosurg|traumasurg|trauma surg|generalsurg|general surg', array('specialties'), 5, NULL),
+  ('trauma', 7, 'round_the_clock', '24×7 cover',
+   '24 ?[x/*] ?7|24 hours|round[- ]the[- ]clock', array('capabilities', 'procedures', 'description'), 5, NULL),
+
+  ('cardiac_surgery', 1, 'cardiac_surgery_named', 'Cardiac surgery named explicitly',
+   '\\bcabg\\b|(coronary|cardiac|heart)[a-z ()-]{0,25}bypass|open[- ]heart|valve (replacement|repair|surgery)|cardiac surgery|cardiothoracic|heart surgery', array('procedures', 'capabilities', 'description'), 20, NULL),
+  ('cardiac_surgery', 2, 'cardiac_ot_equipment', 'Heart-lung machine / cardiac OT',
+   'heart[- ]lung|cardiopulmonary bypass|perfusion|\\biabp\\b|intra[- ]aortic|ecmo|cardiac (surgery )?(ot|operation theat)|cardiothoracic (ot|operation theat)|ctvs ot', array('equipment', 'capabilities'), 15, NULL),
+  ('cardiac_surgery', 3, 'cath_lab', 'Cath lab',
+   'cath ?lab|catheteri[sz]ation lab', array('equipment', 'capabilities'), 10, 'cath_lab'),
+  ('cardiac_surgery', 4, 'cardiac_surgery_dept', 'Cardiac / cardiothoracic surgery department',
+   'cardiacsurg|cardiothoracic|cardiovascular ?surg|\\bctvs\\b|cardiac surg', array('specialties', 'capabilities'), 5, NULL),
+  ('cardiac_surgery', 5, 'cardiac_icu', 'Cardiac ICU / CCU',
+   'iccu|\\bccu\\b|cardiac (icu|intensive)|cticu|cvtsicu|coronary care', array('capabilities', 'equipment'), 5, NULL),
+  ('cardiac_surgery', 6, 'blood', 'Blood bank',
+   'blood bank|blood storage|blood transfusion', array('capabilities', 'equipment'), 5, 'blood_bank'),
+
+  ('mri', 1, 'mri_scanner', 'MRI scanner listed as equipment',
+   '\\bmri\\b|magnetic resonance', array('equipment'), 25, NULL),
+  ('mri', 2, 'mri_named', 'MRI offered as a service',
+   '\\bmri\\b|magnetic resonance', array('procedures', 'capabilities', 'description'), 20, NULL),
+  ('mri', 3, 'field_strength', 'Field strength stated (e.g. 1.5T, 3T)',
+   '\\b(0\\.[0-9]+|1\\.5|3(\\.0)?) ?(t|tesla)\\b', array('equipment', 'capabilities', 'procedures'), 10, NULL),
+  ('mri', 4, 'radiology_dept', 'Radiology department',
+   'radiolog', array('specialties', 'capabilities'), 5, NULL)
+AS t(service_key, check_order, check_key, check_label, regex, fields, points, links_service);
+
+-- COMMAND ----------
+
+CREATE OR REPLACE TABLE workspace.datathon.gold_facility_service_checks
+COMMENT 'One row per (facility, headline service, evidence dimension): found / unknown / contradicted, with the verbatim phrase that decided it. Missing = unknown, never a penalty.'
+AS
+WITH cr AS (  -- every candidate facility x service, crossed with that service's checks
+  SELECT g.facility_id, g.service_key, g.name, r.check_order, r.check_key, r.check_label, r.regex, r.fields,
+         r.points, r.links_service, s.exclude_regex
+  FROM workspace.datathon.gold_facility_services g
+  JOIN workspace.datathon.ref_service_requirements r USING (service_key)
+  JOIN workspace.datathon.ref_services s USING (service_key)
+),
+text_hits AS (
+  SELECT cr.facility_id, cr.service_key, cr.check_key, p.field, p.pos, p.text,
+         CASE WHEN p.field = 'specialties' THEN 'direct' ELSE workspace.datathon.claim_type(p.text, cr.name) END AS claim_type
+  FROM cr
+  JOIN workspace.datathon.facility_phrases p
+    ON p.facility_id = cr.facility_id AND array_contains(cr.fields, p.field)
+  WHERE cr.regex IS NOT NULL
+    AND workspace.datathon.phrase_matches(p.text, cr.regex, cr.exclude_regex, cr.service_key)
+),
+best AS (  -- the most convincing phrase per check: direct > department list > negated > hedged > third party
+  SELECT facility_id, service_key, check_key,
+         min_by(named_struct('text', text, 'field', field, 'claim_type', claim_type),
+                CASE claim_type WHEN 'direct' THEN 0 WHEN 'list_dump' THEN 1 WHEN 'negated' THEN 2 WHEN 'hedged' THEN 3 ELSE 4 END * 100000
+              + CASE field WHEN 'procedures' THEN 0 WHEN 'capabilities' THEN 1 WHEN 'equipment' THEN 2 WHEN 'specialties' THEN 3 ELSE 4 END * 10000
+              + pos) AS hit
+  FROM text_hits
+  GROUP BY facility_id, service_key, check_key
+),
+linked AS (  -- the supporting service has its own strong/moderate evidence at this facility
+  SELECT cr.facility_id, cr.service_key, cr.check_key,
+         l.service_label AS linked_label, l.evidence_tier AS linked_tier, l.evidence_summary AS linked_summary
+  FROM cr
+  JOIN workspace.datathon.gold_facility_services l
+    ON l.facility_id = cr.facility_id AND l.service_key = cr.links_service AND l.evidence_tier IN ('strong', 'moderate')
+),
+decided AS (
+  SELECT cr.*, b.hit, lk.linked_label, lk.linked_tier, lk.linked_summary,
+    CASE WHEN b.hit.claim_type IN ('direct', 'list_dump') OR lk.linked_tier IS NOT NULL THEN 'found'
+         WHEN b.hit.claim_type = 'negated' THEN 'contradicted'
+         ELSE 'unknown' END AS status
+  FROM cr
+  LEFT JOIN best b USING (facility_id, service_key, check_key)
+  LEFT JOIN linked lk USING (facility_id, service_key, check_key)
+)
+SELECT facility_id, service_key, check_order, check_key, check_label, status,
+  CASE WHEN status = 'found' THEN points ELSE 0 END AS points,
+  points AS max_points,
+  CASE WHEN hit.claim_type IN ('direct', 'list_dump') OR linked_tier IS NULL THEN hit.text
+       ELSE concat(linked_label, ' (', linked_tier, ' evidence): ', linked_summary) END AS cited_text,
+  CASE WHEN hit.claim_type IN ('direct', 'list_dump') OR linked_tier IS NULL THEN hit.field
+       ELSE concat('service:', links_service) END AS field,
+  CASE WHEN hit.claim_type IN ('direct', 'list_dump') OR linked_tier IS NULL THEN hit.claim_type END AS claim_type,
+  links_service
+FROM decided;
+
+-- COMMAND ----------
+
+-- MAGIC %md
+-- MAGIC ## Final gold: checklist points and the `probable` tier
+-- MAGIC
+-- MAGIC * Headline services: `pts_evidence` = sum of found checks (`evidence_method = 'checklist'`); the keyword-rule
+-- MAGIC   points are kept as `pts_evidence_rules`. Other services keep the keyword rule.
+-- MAGIC * **`probable`** (between moderate and weak): the procedure itself is never named, but the facility lists the
+-- MAGIC   service's specialty **and** is large (100+ beds) or a teaching/district hospital (medical college, AIIMS,
+-- MAGIC   institute of medical sciences, district hospital). Only where `ref_services.probable_if_specialty` (C-section, NICU,
+-- MAGIC   ICU, trauma, cardiac surgery, neurosurgery, high-risk delivery), never for kit-dependent services like MRI, dialysis or cath lab.
+-- MAGIC   Tier order: strong > moderate > probable > weak.
+
+-- COMMAND ----------
+
+CREATE OR REPLACE TABLE workspace.datathon.gold_facility_services
+COMMENT 'Gold: one row per (facility, service) with evidence. Matched phrases are verbatim from the facility record for citation, each labelled with a claim type; trust_score components are stored separately for transparency. Tiers: strong > moderate > probable > weak.'
+AS
+WITH ck AS (
+  SELECT facility_id, service_key,
+         sum(points) AS pts_checklist,
+         count_if(status = 'found') AS checks_found,
+         count(*) AS checks_total,
+         transform(array_sort(collect_list(named_struct(
+             'o', check_order, 'check_key', check_key, 'check_label', check_label, 'status', status,
+             'points', points, 'max_points', max_points, 'cited_text', cited_text, 'field', field, 'claim_type', claim_type))),
+           c -> named_struct('check_key', c.check_key, 'check_label', c.check_label, 'status', c.status,
+                             'points', c.points, 'max_points', c.max_points, 'cited_text', c.cited_text,
+                             'field', c.field, 'claim_type', c.claim_type)) AS evidence_checks
+  FROM workspace.datathon.gold_facility_service_checks
+  GROUP BY facility_id, service_key
+),
+spec_label(spec, label) AS (VALUES
+  ('gynecologyandobstetrics', 'Obstetrics & Gynaecology'), ('obstetrics', 'Obstetrics'),
+  ('maternalfetalmedicineorperinatology', 'Maternal-Fetal Medicine'), ('neonatalperinatalmedicine', 'Neonatology'),
+  ('neonatology', 'Neonatology'), ('criticalcaremedicine', 'Critical Care'), ('emergencymedicine', 'Emergency Medicine'),
+  ('traumasurgery', 'Trauma Surgery'), ('cardiacsurgery', 'Cardiac Surgery'), ('cardiothoracicsurgery', 'Cardiothoracic Surgery'),
+  ('cardiothoracicandvascularsurgery', 'Cardiothoracic & Vascular Surgery'), ('cardiology', 'Cardiology'),
+  ('interventionalcardiology', 'Interventional Cardiology'), ('neurosurgery', 'Neurosurgery'),
+  ('orthopedicspinesurgery', 'Spine Surgery'), ('plasticsurgery', 'Plastic Surgery'), ('burnsurgery', 'Burn Surgery'),
+  ('plasticandreconstructivesurgery', 'Plastic & Reconstructive Surgery')
+),
+base AS (
+  SELECT g.*, s.needs_hospital, ck.pts_checklist, ck.checks_found, ck.checks_total, ck.evidence_checks,
+    coalesce(sl.label, get(g.specialties_cited, 0)) AS spec_pretty,
+    g.evidence_tier = 'weak' AND s.probable_if_specialty AND size(g.specialties_cited) > 0
+      AND coalesce(g.facility_type, '') NOT IN ('clinic', 'dentist', 'pharmacy', 'doctor')
+      AND (coalesce(g.capacity_beds, 0) >= 100
+           OR lower(g.name) RLIKE 'medical college|institute of medical sciences|\\baiims\\b|all india institute|medical university|district hospital')
+      -- a name that declares a different focus rules it out ("... Cancer Hospital" for C-section), but a matching
+      -- focus is fine ("... Children Hospital" for NICU, "... Heart Institute" for cardiac surgery)
+      AND (name_focus IS NULL OR array_contains(CASE name_focus
+            WHEN 'women'    THEN array('emergency_csection', 'high_risk_delivery', 'nicu')
+            WHEN 'children' THEN array('nicu', 'icu')
+            WHEN 'heart'    THEN array('cardiac_surgery', 'icu')
+            WHEN 'neuro'    THEN array('neurosurgery', 'trauma', 'icu')
+            WHEN 'ortho'    THEN array('trauma')
+            ELSE array() END, g.service_key))
+      AS is_probable
+  FROM workspace.datathon.gold_facility_services g
+  JOIN workspace.datathon.ref_services s USING (service_key)
+  LEFT JOIN ck USING (facility_id, service_key)
+  LEFT JOIN spec_label sl ON sl.spec = get(g.specialties_cited, 0)
+  LEFT JOIN LATERAL (SELECT CASE
+      WHEN lower(g.name) RLIKE 'women|maternity|mother|matru|obstetric|gyn(a)?ec|\\bivf\\b|fertility' THEN 'women'
+      WHEN lower(g.name) RLIKE 'child|kids|paediatric|pediatric|shishu|neonat|newborn' THEN 'children'
+      WHEN lower(g.name) RLIKE 'heart|cardiac|cardio' THEN 'heart'
+      WHEN lower(g.name) RLIKE 'neuro|brain|spine' THEN 'neuro'
+      WHEN lower(g.name) RLIKE 'ortho|\\bbone|joint|fracture|accident' THEN 'ortho'
+      WHEN lower(g.name) RLIKE 'cancer|oncolog|\\beye\\b|netra|nethra|vision|kidney|nephro|urolog|dental|\\bskin\\b|derma|psychiatr|mental|rehab|\\bent\\b|diagnostic|imaging|\\bscan|\\blab(s|oratory)?\\b|ayurved|homoeo|homeo' THEN 'other'
+    END AS name_focus) nf
+),
+pts AS (
+  SELECT base.*,
+    pts_evidence AS pts_evidence_rules,
+    CASE WHEN pts_checklist IS NOT NULL THEN least(60, pts_checklist) ELSE pts_evidence END AS pts_evidence_final
+  FROM base
+)
+SELECT
+  facility_id, service_key, service_label, name, facility_type, operator_type,
+  lat, lon, district, state, pincode, address_text, location_confidence, location_note,
+  CASE WHEN is_probable THEN 'probable' ELSE evidence_tier END AS evidence_tier,
+  greatest(0, least(100, pts_evidence_final + pts_sources + pts_scale + pts_location
+                         + pen_merged + pen_facility_type + pen_negated + pen_numbers)) AS trust_score,
+  pts_evidence_final AS pts_evidence, pts_sources, pts_scale, pts_location, pen_merged, pen_facility_type, pen_negated, pen_numbers,
+  procedures_cited, capabilities_cited, equipment_cited, description_cited, specialties_cited,
+  negated_or_referral_mentions,
+  evidence_summary,
+  CASE WHEN is_probable THEN concat(
+         array(concat('Procedure not named in the record; ', name, ' lists ', spec_pretty,
+                      CASE WHEN capacity_beds IS NOT NULL THEN concat(' and ', CAST(capacity_beds AS STRING), ' beds')
+                           ELSE ' and is a teaching / district hospital' END,
+                      '. Call to confirm.')),
+         filter(caveats, c -> NOT c LIKE 'Only a related specialty%'))
+       ELSE caveats END AS caveats,
+  number_doctors, capacity_beds, year_established, n_source_domains, source_urls,
+  official_phone, official_website, email, facebook_link, city_raw,
+  claims_cited, n_direct_mentions, n_list_mentions, scope_family, quality_flags,
+  -- appended in Phase 2
+  CASE WHEN pts_checklist IS NOT NULL THEN 'checklist' ELSE 'keyword_rules' END AS evidence_method,
+  pts_evidence_rules, checks_found, checks_total, evidence_checks
+FROM pts;
+
+-- COMMAND ----------
+
 -- Health check: evidence depth per service
 SELECT service_key,
        count(*) AS facilities_with_any_evidence,
        count_if(evidence_tier = 'strong')   AS strong,
        count_if(evidence_tier = 'moderate') AS moderate,
+       count_if(evidence_tier = 'probable') AS probable,
        count_if(evidence_tier = 'weak')     AS weak,
        round(avg(trust_score)) AS avg_trust
 FROM workspace.datathon.gold_facility_services

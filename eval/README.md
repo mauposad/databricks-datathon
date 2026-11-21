@@ -1,6 +1,6 @@
 # Evaluation set
 
-`labels.csv` holds 66 hand-labelled (facility, service) pairs for the six headline services (dialysis,
+`labels.csv` holds 82 hand-labelled (facility, service) pairs for the six headline services (dialysis,
 emergency C-section, NICU, trauma, cardiac surgery, MRI) plus three cath-lab rows. Each was labelled by reading the
 facility's own record (procedures, capabilities, equipment, description, specialties, beds).
 
@@ -11,7 +11,8 @@ facility's own record (procedures, capabilities, equipment, description, special
 | `unclear` | genuinely can't tell (specialty listed only, photo-based guess at a mid-size hospital); left out of precision and recall |
 
 `why_sampled` says how each row was picked: `random_sm` (random strong/moderate rows), `random_weak`, `merged`
-(records flagged `possible_merged_record`), `known_issue` (false positives and misses found while testing).
+(records flagged `possible_merged_record`), `known_issue` (false positives and misses found while testing), `probable_sample` (16 random `probable`-tier rows
+not seen before labelling, added in Phase 2 to measure that tier).
 Because known problems were deliberately included, the numbers below are a stress test, not a population estimate.
 
 ## Running it
@@ -31,15 +32,22 @@ also counts `probable`). `keyword_baseline` = any service alias appears anywhere
 
 ## Results
 
+All 82 rows (`unclear` rows excluded from the counts):
+
 | version | TP | FP | FN | precision | recall |
 |---|---|---|---|---|---|
-| keyword baseline | 39 | 10 | 5 | 0.80 | 0.89 |
-| v1 (original rules) | 39 | 11 | 5 | 0.78 | 0.89 |
-| Phase 1 (exclusions, claim types, scope gate) | 38 | 0 | 6 | **1.00** | 0.86 |
+| keyword baseline | 39 | 10 | 12 | 0.80 | 0.76 |
+| v1 (original rules) | 39 | 11 | 12 | 0.78 | 0.76 |
+| Phase 1: strong/moderate only | 38 | 0 | 13 | **1.00** | 0.75 |
+| Phase 2: strong/moderate/probable | 51 | 0 | 0 | **1.00** | **1.00** |
 
-Per service after Phase 1: cardiac surgery 0.50 → 1.00 precision, cath lab 0.33 → 1.00, MRI 0.75 → 1.00,
-NICU 0.88 → 1.00, trauma 0.77 → 1.00 (recall 1.00 → 0.80). Dialysis and C-section had no false positives to start with.
+Phase 1 (exclusions, claim types, dental/eye scope gate) removed every false positive: cardiac surgery precision
+0.50 → 1.00, cath lab 0.33 → 1.00, MRI 0.75 → 1.00, NICU 0.88 → 1.00, trauma 0.77 → 1.00.
 
-Remaining misses: five large teaching hospitals (AIIMS Patna ×2, AIIMS Nagpur, IGIMS, KGMU) that list obstetrics but
-never name C-section, and a 1,416-bed medical college whose only trauma mention is a paper affiliation (correctly
-discounted as `third_party`). These are what the `probable` tier (Phase 2) is meant to surface.
+Phase 2 added the `probable` tier for large or teaching hospitals that list the specialty but never name the
+procedure (AIIMS, KGMU, IGIMS, medical colleges). Read the recall of 1.00 with care:
+
+* the original misses are the cases this tier was designed for, so recovering them is partly by construction;
+* in the fresh random sample of 16 `probable` rows, 7 were `yes`, 9 `unclear`, 0 `no`. The tier finds real
+  hospitals, but about half are genuinely uncertain, which is why it is labelled "call to confirm" and ranked
+  below strong/moderate evidence.

@@ -120,6 +120,9 @@ the Marketplace share, which stays untouched.
 | `silver_facilities` | silver | one row per facility (`cluster_id`) | Deduplicated, parsed claim arrays, resolved location + confidence, data-quality flags |
 | `ref_state_aliases`, `ref_services` | reference | | State spelling fixes; the keyword rules that define each searchable service |
 | `gold_facility_services` | gold | one row per facility × service | Cited evidence, evidence tier, 0–100 trust score with its components, caveats |
+| `facility_phrases` | gold (helper) | one row per phrase | Every verbatim phrase of every record (procedures, capabilities, equipment, description sentences, specialties) |
+| `ref_service_requirements` | reference | one row per service × check | Evidence dimensions for the 6 headline services (not a clinical checklist); points sum to 60 |
+| `gold_facility_service_checks` | gold | one row per facility × service × check | found / unknown / contradicted, with the phrase that decided it; missing = unknown, never a penalty |
 | `find_care(service, place, max_km, top_n)` | function | | Ranked recommendations with a `why` (citations) and `how` (score arithmetic) |
 
 ```sql
@@ -129,14 +132,17 @@ SELECT * FROM workspace.datathon.find_care('emergency c-section', '226001', 50, 
 
 ### Matching quality (hand-labelled evaluation)
 
-`eval/` holds 66 hand-labelled facility × service pairs and a script that reports precision/recall
+`eval/` holds 82 hand-labelled facility × service pairs and a script that reports precision/recall
 (see [`eval/README.md`](eval/README.md)). A facility counts as offering a service when its tier is strong or moderate.
 
 | version | precision | recall |
 |---|---|---|
-| keyword baseline (any alias anywhere) | 0.80 | 0.89 |
-| original rules (v1) | 0.78 | 0.89 |
-| exclusions + claim types + dental/eye scope gate | **1.00** | 0.86 |
+| keyword baseline (any alias anywhere) | 0.80 | 0.76 |
+| original rules (v1) | 0.78 | 0.76 |
+| exclusions + claim types + dental/eye scope gate | **1.00** | 0.75 |
+| + `probable` tier (large/teaching hospital lists the specialty) | **1.00** | 1.00 |
+
+Of 16 random `probable` rows, 7 were confirmed and 9 genuinely unclear, so `probable` is shown as "call to confirm".
 
 Rebuild everything (about 6 minutes):
 

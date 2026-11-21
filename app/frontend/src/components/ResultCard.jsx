@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import ScoreBreakdown from './ScoreBreakdown.jsx'
 
-const CONF_CLASS = { High: 'conf-high', Medium: 'conf-med', Low: 'conf-low', Unconfirmed: 'conf-none' }
+const CONF_CLASS = { High: 'conf-high', Medium: 'conf-med', Low: 'conf-low', Probable: 'conf-low', Unconfirmed: 'conf-none' }
+// Ranking bands used by find_care: strong/moderate, then probable, then weak
+const tierBand = (t) => (t === 'weak' ? 2 : t === 'probable' ? 1 : 0)
 const WARN_TAGS = ['Single source', 'Possible merged record', 'Not a hospital', 'Has referral mentions', 'Location uncertain', 'Weak evidence']
 
 function toRegex(pattern) {
@@ -46,8 +48,11 @@ function Comparison({ rec, top }) {
   return (
     <div className="compare">
       <h5>Why #{rec.rank} is below #1</h5>
-      {rec.confidence.tier === 'weak' && top.confidence.tier !== 'weak'
-        ? <p>Weak evidence is never ranked above strong or moderate evidence, whatever the distance.</p>
+      {tierBand(rec.confidence.tier) > tierBand(top.confidence.tier)
+        ? <p>
+            {rec.confidence.tier === 'weak' ? 'Weak' : 'Probable'} evidence is never ranked above
+            {top.confidence.tier === 'probable' ? ' probable' : ' strong or moderate'} evidence, whatever the distance.
+          </p>
         : (
           <p>
             Match {rec.score.match} vs {top.score.match}: trust {sign(dTrust)} (×0.6 = {sign(+(0.6 * dTrust).toFixed(1))}),
