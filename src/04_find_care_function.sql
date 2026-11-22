@@ -220,11 +220,16 @@ RETURNS TABLE (
   possible_duplicate_names ARRAY<STRING>,
   -- Phase 5: one concrete fact to confirm by phone
   call_to_confirm STRING,
-  -- Phase 6: human verification overlay and stability across named scenarios
+  -- Phase 6: human verification overlay
   verifications ARRAY<STRUCT<check_key: STRING, status: STRING, reviewer: STRING, ts: TIMESTAMP, note: STRING, evidence_url: STRING>>,
   verified_service STRING, q_verified INT,
-  scenarios_n INT, stable_first_in INT, stability_note STRING,
-  scenario_winners ARRAY<STRUCT<scenario: STRING, winner: STRING>>,
+  -- "How solid is this pick?" (#1 only): the ranking re-run with one doubt at a time.
+  --   kind 'data': doubts about the records (decide Solid vs Shaky); kind 'situation': the patient's circumstances.
+  --   still_first NULL = no facility passes that check at all.
+  double_checks ARRAY<STRUCT<kind: STRING, label: STRING, still_first: BOOLEAN, winner: STRING>>,
+  pick_strength STRING, pick_strength_note STRING,
+  -- other cards: "Would be your best option if you can travel up to 2 hours."
+  tip_note STRING,
   -- confidence label (High / Medium / Low / Probable / Unconfirmed); the ranking orders by it before Quality
   confidence_label STRING)
 COMMENT 'Ranked facilities for a service near a place: quality-first within a travel-time budget, with cited evidence (why), score arithmetic (how), trade-offs and uncertainty'
@@ -329,8 +334,9 @@ RETURN
              'id', facility_id, 'q', CAST(quality_score AS INT), 'km', km, 'band', rank_band)), 100) AS ord
     FROM cand WHERE band < 3
   ),
-  scen0 AS (  -- named "what if" scenarios: who would be #1 under each (no random sampling)
+  scen0 AS (  -- double-checks: who would be #1 if we re-ran the ranking with one doubt at a time (no random sampling)
     SELECT map_from_entries(collect_list(struct(facility_id, name))) AS names,
+      CAST(max(budget) * 2 AS INT) AS budget2,
       get(workspace.datathon.greedy_rank(
           collect_list(named_struct('id', facility_id, 'q', CAST(quality_score AS INT), 'km', km, 'band', rank_band))
             FILTER (WHERE evidence_tier = 'strong' AND qualifies), 1), 0).id AS w_strong,
@@ -352,11 +358,18 @@ RETURN
   ),
   scen AS (
     SELECT names, array(
-      named_struct('scenario', 'Only strong evidence counts', 'winner', w_strong),
-      named_struct('scenario', 'Single-source records ignored', 'winner', w_multi),
-      named_struct('scenario', 'Uncertain locations moved to their alternate', 'winner', w_alt),
-      named_struct('scenario', 'Travel budget doubled', 'winner', w_budget),
-      named_struct('scenario', 'Readiness ignored (evidence and reliability only)', 'winner', w_noready)) AS scenarios
+      -- doubts about the data: these decide whether #1 is a Solid or a Shaky pick
+      named_struct('kind', 'data', 'key', 'strong', 'label', 'Only facilities with detailed evidence count', 'winner', w_strong),
+      named_struct('kind', 'data', 'key', 'multi', 'label', 'Facilities found on just one website are ignored', 'winner', w_multi),
+      named_struct('kind', 'data', 'key', 'alt', 'label', 'Fuzzy addresses are moved to their other recorded location', 'winner', w_alt),
+      -- the patient's situation: shown as tips, never counted against #1
+      named_struct('kind', 'situation', 'key', 'budget',
+                   'label', concat('You can travel up to ', CASE WHEN budget2 % 60 = 0 THEN concat(CAST(budget2 DIV 60 AS STRING), ' hours')
+                                                                 ELSE concat(CAST(budget2 AS STRING), ' min') END),
+                   'winner', w_budget),
+      named_struct('kind', 'situation', 'key', 'noready',
+                   'label', 'Only the evidence matters, not hospital size or backup services like ICU and blood bank',
+                   'winner', w_noready)) AS scenarios
     FROM scen0
   ),
   ranked AS (
@@ -409,11 +422,12 @@ RETURN
       t.name AS top_name, t.quality_score AS top_q, t.travel AS top_travel, t.checks_found AS top_cf, t.checks_total AS top_ct,
       t.evidence_tier AS top_tier, t.support_found AS top_support, t.conf_group AS top_conf_group,
       t.confidence_label AS top_conf,
-      size(filter(sc.scenarios, x -> x.winner = rk.facility_id)) AS stable_n,
-      transform(sc.scenarios, x -> named_struct('scenario', x.scenario,
-                                                'winner', coalesce(element_at(sc.names, x.winner), 'no facility qualifies'))) AS scenario_winners,
-      filter(sc.scenarios, x -> x.winner = rk.facility_id) AS won_in,
-      filter(sc.scenarios, x -> x.winner IS DISTINCT FROM rk.facility_id) AS lost_in,
+      transform(sc.scenarios, x -> named_struct('kind', x.kind, 'label', x.label,
+                                                'still_first', x.winner = rk.facility_id,
+                                                'winner', element_at(sc.names, x.winner))) AS double_checks,
+      -- data checks that put a different facility first (a check nobody passes doesn't count against #1)
+      filter(sc.scenarios, x -> x.kind = 'data' AND x.winner IS NOT NULL AND x.winner <> rk.facility_id) AS data_lost,
+      filter(sc.scenarios, x -> x.kind = 'situation' AND x.winner = rk.facility_id) AS situation_won,
       sc.names AS names
     FROM ranked rk CROSS JOIN top1 t CROSS JOIN scen sc
   )
@@ -536,15 +550,26 @@ RETURN
       ELSE concat('Ask whether ', svc_label, ' is available on the day you plan to go, and the cost.')
     END,
     verifications, verified_service, q_verified,
-    size(scenario_winners), CAST(stable_n AS INT),
+    CASE WHEN rnk = 1 THEN double_checks END,
+    CASE WHEN rnk = 1 THEN CASE WHEN size(data_lost) = 0 THEN 'Solid' ELSE 'Shaky' END END,
     CASE
-      WHEN rnk = 1 THEN concat('Stays #1 in ', CAST(stable_n AS STRING), ' of ', CAST(size(scenario_winners) AS STRING), ' "what if" scenarios',
-        CASE WHEN size(lost_in) > 0 THEN concat('; #1 would change if: ',
-          array_join(transform(lost_in, x -> concat(lower(x.scenario), ' (', coalesce(element_at(names, x.winner), 'no facility qualifies'), ')')), '; '))
-        ELSE '' END, '.')
-      WHEN stable_n > 0 THEN concat('Would be #1 if: ', array_join(transform(won_in, x -> lower(x.scenario)), '; '), '.')
+      WHEN rnk <> 1 THEN NULL
+      WHEN size(data_lost) = 0 THEN 'Solid pick: stays #1 even if we doubt the data.'
+      ELSE concat('Shaky pick: ',
+        CASE get(data_lost, 0).key
+          WHEN 'strong' THEN 'if we only count detailed evidence'
+          WHEN 'multi' THEN CASE WHEN coalesce(n_source_domains, 0) <= 1 THEN 'if its one website is wrong'
+                                 ELSE 'if we ignore facilities found on just one website' END
+          ELSE CASE WHEN alt_lat IS NOT NULL THEN 'if it is really at the other address on record'
+                    ELSE 'if fuzzy addresses are really at their other location' END END,
+        ', ', element_at(names, get(data_lost, 0).winner), ' is #1',
+        CASE WHEN size(data_lost) > 1 THEN concat(' (', CAST(size(data_lost) AS STRING), ' of 3 double-checks change #1)') ELSE '' END,
+        '.')
     END,
-    scenario_winners,
+    CASE WHEN rnk <> 1 AND size(situation_won) > 0 THEN
+      concat('Would be your best option if ',
+             array_join(transform(situation_won, x -> concat(lower(substr(x.label, 1, 1)), substr(x.label, 2))), ', or if '), '.')
+    END,
     confidence_label
   FROM enriched
   WHERE rnk <= top_n OR is_near_alt OR is_better_farther

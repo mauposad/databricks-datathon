@@ -162,6 +162,41 @@ function rankReason(rec, top) {
   return `Match score ${rec.score.match} vs ${top.score.match} for #1 (60% evidence and data quality, 40% distance).`
 }
 
+// "How solid is this pick?" (#1 only): a one-line verdict, with the double-checks behind it on request.
+function CheckRow({ c }) {
+  const result = c.still_first === true ? <span className="still">✓ Still #1</span>
+    : c.still_first === false ? <span className="moves">→ {c.winner} would be #1</span>
+    : <span className="muted">No facility passes this check</span>
+  return <li><span className="check-label">{c.label}</span>{result}</li>
+}
+
+function PickStrength({ rec }) {
+  const solid = rec.pick_strength === 'Solid'
+  const data = rec.double_checks.filter((c) => c.kind === 'data')
+  const situation = rec.double_checks.filter((c) => c.kind === 'situation')
+  return (
+    <div className={`pick ${solid ? 'solid' : 'shaky'}`} onClick={(e) => e.stopPropagation()}>
+      <p className="pick-line"><span aria-hidden>{solid ? '🛡' : '⚠'}</span> {rec.pick_strength_note}</p>
+      {data.length > 0 && (
+        <details className="pick-checks">
+          <summary>See the {data.length} double-checks</summary>
+          <p className="small muted">
+            We re-ran the ranking {data.length} more times, each time doubting one part of the data. If #1 stays on top
+            every time, it is a solid pick. If not, the facility that takes its place is the one to call second.
+          </p>
+          <ul>{data.map((c) => <CheckRow key={c.label} c={c} />)}</ul>
+          {situation.length > 0 && (
+            <>
+              <p className="pick-sub">If your situation is different</p>
+              <ul>{situation.map((c) => <CheckRow key={c.label} c={c} />)}</ul>
+            </>
+          )}
+        </details>
+      )}
+    </div>
+  )
+}
+
 function Section({ title, defaultOpen = false, children }) {
   return (
     <details className="section" open={defaultOpen}>
@@ -257,6 +292,9 @@ export default function ResultCard({ rec, top, selected, onSelect, serviceKey, o
         <p className="tradeoff">{rec.tradeoff_note}</p>
       )}
 
+      {rec.pick_strength_note && <PickStrength rec={rec} />}
+      {rec.tip_note && <p className="tip"><span aria-hidden>💡</span> {rec.tip_note}</p>}
+
       {headsUp.length > 0 && (
         <ul className={`heads-up ${headsUp.some((h) => h.level === 'bad') ? 'bad' : ''}`}>
           {headsUp.slice(0, 2).map((h) => <li key={h.text}>{h.text}</li>)}
@@ -305,12 +343,11 @@ export default function ResultCard({ rec, top, selected, onSelect, serviceKey, o
             </Section>
           )}
 
-          {(reason || rec.stability_note || rec.counterfactual_note || (rec.tradeoff_note && !rec.is_nearest_alternative && !rec.is_better_farther)) && (
+          {(reason || rec.counterfactual_note || (rec.tradeoff_note && !rec.is_nearest_alternative && !rec.is_better_farther)) && (
             <Section title={rec.rank === 1 ? 'Why this is #1' : `Why this is #${rec.rank}`}>
               {reason && <p>{reason}</p>}
               {rec.tradeoff_note && !rec.is_nearest_alternative && !rec.is_better_farther && <p>{rec.tradeoff_note}</p>}
               {rec.counterfactual_note && <p>{rec.counterfactual_note}</p>}
-              {rec.stability_note && <p className="muted">{rec.stability_note}</p>}
             </Section>
           )}
 

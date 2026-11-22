@@ -9,7 +9,7 @@ import time
 from typing import Any
 
 from .. import sql
-from ..schema import (Check, Claim, Confidence, Evidence, Origin, Query, RecommendResponse, Recommendation, Scenario,
+from ..schema import (Check, Claim, Confidence, DoubleCheck, Evidence, Origin, Query, RecommendResponse, Recommendation,
                       Score, ScorePart, Service)
 from .base import Adapter
 
@@ -43,6 +43,13 @@ def _cached(key: str, ttl: float, fn):
     val = fn()
     _CACHE[key] = (time.time(), val)
     return val
+
+
+def _bool(v) -> bool | None:
+    """Struct fields arrive as JSON strings ("true"/"false") from the SQL API."""
+    if v is None or isinstance(v, bool):
+        return v
+    return str(v).lower() == "true"
 
 
 def confidence_for(trust: float, tier: str | None, identity_conflict: bool = False) -> str:
@@ -159,8 +166,10 @@ def to_recommendation(r: dict) -> Recommendation:
         claims=[Claim(text=c["text"], field=c["field"], claim_type=c["claim_type"]) for c in (r.get("claims_cited") or [])],
         call_to_confirm=r.get("call_to_confirm"),
         identity_conflict=bool(r.get("identity_conflict")), coherence=r.get("record_coherence_score"),
-        verified_service=r.get("verified_service"), stability_note=r.get("stability_note"),
-        stable_first_in=r.get("stable_first_in"),
+        verified_service=r.get("verified_service"),
+        double_checks=[DoubleCheck(kind=c["kind"], label=c["label"], still_first=_bool(c.get("still_first")),
+                                   winner=c.get("winner")) for c in (r.get("double_checks") or [])],
+        pick_strength=r.get("pick_strength"), pick_strength_note=r.get("pick_strength_note"), tip_note=r.get("tip_note"),
     )
 
 
@@ -197,7 +206,6 @@ class FindCareAdapter(Adapter):
         resp.n_candidates = first.get("n_candidates") or len(rows)
         resp.results = [to_recommendation(r) for r in rows]
         resp.service_key = next((s.key for s in self.services() if s.label == resp.service_label), None)
-        resp.scenarios = [Scenario(**x) for x in (first.get("scenario_winners") or [])]
         resp.ranking_rule = first.get("ranking_rule") or ""
         resp.travel_assumption = first.get("travel_assumption") or ""
         resp.search_note = first.get("search_note") or None

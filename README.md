@@ -140,9 +140,13 @@ penalties). If two are within 10 Quality points, the closer one wins. Facilities
 "farther option"; weak (unconfirmed) evidence always comes last. If nothing qualifies in the radius, it is doubled up
 to 300 km. Travel time = straight-line km × 1.4 ÷ 35 km/h.
 
-**How stable is #1?** Every search also re-ranks under 5 named what-if scenarios (only strong evidence counts;
-single-source records ignored; uncertain locations moved to their alternate; travel budget doubled; readiness ignored)
-and reports "Stays #1 in k of 5", naming who would win otherwise. No random sampling.
+**How solid is this pick?** Every search double-checks #1 by re-running the ranking three times, each time doubting
+one part of the data (only detailed evidence counts; facilities found on just one website are ignored; fuzzy
+addresses moved to their other recorded location). #1 is a **Solid pick** if it stays on top every time; otherwise a
+**Shaky pick**, naming who would take its place ("Shaky pick: if its one website is wrong, X is #1."). Two
+situation checks (travel twice as far; only the evidence matters, not hospital size or backup services) never count
+against #1; they become tips on other cards ("Would be your best option if you can travel up to 2 hours."). No random
+sampling.
 
 ```sql
 SELECT * FROM workspace.datathon.find_care('dialysis', 'Jaipur');
