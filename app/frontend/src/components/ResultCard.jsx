@@ -148,6 +148,9 @@ function rankReason(rec, top) {
     if (rec.ranking_band === 'unconfirmed') return 'Its evidence is weak, and weak evidence always comes after confirmed or probable options.'
     if (rec.ranking_band === 'farther option' && top.ranking_band === 'reachable')
       return `It is about ${rec.travel_min} min away, beyond the ${rec.travel_budget_min}-minute travel limit for this service, so it comes after every option within reach.`
+    const confGroup = (l) => (l === 'High' ? 1 : l === 'Medium' ? 2 : 3)
+    if (confGroup(rec.confidence.label) > confGroup(top.confidence.label))
+      return `We are less sure about this one (${rec.confidence.label.toLowerCase()} confidence vs ${top.confidence.label.toLowerCase()} for #1), and a less certain facility is never ranked above a more certain one, whatever its quality score.`
     if (dq >= 0) return `Its quality score is ${dq === 0 ? 'the same as' : `${dq} points higher than`} #1's, but the options above it are within 10 points and closer.`
     if (rec.points_below_best != null && rec.points_below_best > 0)
       return `Quality ${rec.score.match} vs ${top.score.match} for #1. It is within 10 points of the best remaining option and closer, so it is not lower still.`
