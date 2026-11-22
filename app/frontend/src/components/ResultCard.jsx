@@ -197,6 +197,51 @@ function PickStrength({ rec }) {
   )
 }
 
+// Location validation (notebooks/location_validation_scoring): do the record's pincode, city, district, postal
+// circle, map point and phones agree? Shown for transparency; it does not change the rank. Facilities scoring 0-2
+// never reach the app (find_care leaves them out).
+const LOC_ICON = { pass: '✓', fail: '✗', missing: '–' }
+const LOC_CLASS = { pass: 'check-found', fail: 'check-contradicted', missing: 'check-unknown' }
+const LOC_LABEL = { verified_all: 'every check agrees', verified_strong: 'strong agreement', verified_partial: 'partial agreement' }
+
+function LocationBadge({ lv }) {
+  if (!lv) return null
+  if (lv.status !== 'scored') {
+    return <span className="badge none" title="This record has no location validation score yet.">Location not validated</span>
+  }
+  const cls = lv.score >= 5 ? 'good' : lv.score >= 4 ? 'ok' : 'bad'
+  return <span className={`badge ${cls}`} title={`Location checks: ${LOC_LABEL[lv.label] || lv.label}`}>Location {lv.score}/5</span>
+}
+
+function LocationChecks({ lv }) {
+  if (lv.status !== 'scored') {
+    return <p className="muted small">Not checked yet: this record has no location validation score.</p>
+  }
+  return (
+    <>
+      <p className="small muted">
+        {lv.score}/5, {LOC_LABEL[lv.label] || lv.label}. We compare the record's own pincode, city, district, postal
+        circle, map point and phone numbers with each other. This is shown for transparency and does not change the rank.
+      </p>
+      <ul className="checklist">
+        {lv.checks.map((c) => (
+          <li key={c.key} className={`check ${LOC_CLASS[c.status] || 'check-unknown'}`}>
+            <span className="icon" aria-label={c.status}>{LOC_ICON[c.status] || '?'}</span>
+            <div className="check-body">
+              <div className="check-title">
+                <span>{c.label}</span>
+                {c.kind === 'secondary' && <span className="muted small">supporting check</span>}
+              </div>
+              {c.status === 'fail' && c.why && <div className="muted small">{c.why}</div>}
+              {c.status === 'missing' && <div className="muted small">Not in the record (does not count against it).</div>}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </>
+  )
+}
+
 function Section({ title, defaultOpen = false, children }) {
   return (
     <details className="section" open={defaultOpen}>
@@ -254,6 +299,7 @@ export default function ResultCard({ rec, top, selected, onSelect, serviceKey, o
           <span className={`badge ${badge.cls}`}>{badge.text}</span>
           {rec.verified_service === 'confirmed' && <span className="badge good">✓ Confirmed by phone</span>}
           {rec.is_nearest_alternative && <span className="badge info">Closest option</span>}
+          <LocationBadge lv={rec.location_validation} />
         </div>
       </header>
 
@@ -340,6 +386,12 @@ export default function ResultCard({ rec, top, selected, onSelect, serviceKey, o
                 {rec.caveats.map((c, i) => <li key={i}>{c}</li>)}
                 {minor.map((t) => <li key={t}>{MINOR[t]}</li>)}
               </ul>
+            </Section>
+          )}
+
+          {rec.location_validation && (
+            <Section title="Does the location add up?">
+              <LocationChecks lv={rec.location_validation} />
             </Section>
           )}
 

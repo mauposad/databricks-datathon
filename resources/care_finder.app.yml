@@ -1,7 +1,7 @@
 resources:
   apps:
     care_finder:
-      name: care-finder
+      name: ${var.care_finder_app_name}
       description: Find Indian healthcare facilities for a service near a place, with cited evidence and confidence.
       source_code_path: ../app
       resources:

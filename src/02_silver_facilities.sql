@@ -7,7 +7,7 @@
 -- MAGIC
 -- MAGIC | Problem in the raw share | What this notebook does |
 -- MAGIC |---|---|
--- MAGIC | ~88 rows are CSV fragments (text shifted into wrong columns) | keep only `organization_type = 'facility'` |
+-- MAGIC | ~88 rows are CSV fragments (text shifted into wrong columns) | read `bronze_locval_facilities_repaired` (location_validation_scoring 01): the 30 split facilities are merged back with their coordinates and `cluster_id`; fragments are dropped |
 -- MAGIC | duplicate rows for the same entity | one row per `cluster_id` (keeps the most complete; remembers how many were collapsed) |
 -- MAGIC | list columns stored as JSON strings, with repeats and placeholders ("no specific equipment information…") | parse to arrays, de-duplicate, drop placeholders |
 -- MAGIC | doctors / beds / year stored as text, some impossible | cast, null out implausible values, flag it (incl. 200+ beds with < 10 doctors) |
@@ -16,7 +16,10 @@
 -- MAGIC | coordinates and PIN code disagree for ~1 in 5 facilities | compare coordinates vs PIN vs city/state text, pick the side with more support, record a confidence |
 -- MAGIC | some records merge several facilities | flag records whose own text places them in another state or district |
 -- MAGIC
--- MAGIC Requires notebook 01 (`silver_pincode_geo`, `haversine_km`).
+-- MAGIC | is the location consistent across pincode, city, district, postal circle, map point and phones? | join `silver_location_validation` (0–5 score per `cluster_id`); no score → flag `location_not_validated` |
+-- MAGIC
+-- MAGIC Requires notebook 01 (`silver_pincode_geo`, `haversine_km`) and the `location_validation_scoring` job
+-- MAGIC (`bronze_locval_facilities_repaired`, `silver_location_validation` in this schema).
 
 -- COMMAND ----------
 
@@ -121,8 +124,10 @@ WITH raw AS (
                             ORDER BY length(coalesce(capability, '')) + length(coalesce(procedure, '')) DESC, unique_id) AS rn,
          count(*)            OVER (PARTITION BY cluster_id) AS n_raw_rows,
          collect_set(unique_id) OVER (PARTITION BY cluster_id) AS all_unique_ids
-  FROM databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.facilities f
-  WHERE organization_type = 'facility' AND cluster_id IS NOT NULL
+  -- the share's facilities table with CSV-split rows repaired (see notebooks/location_validation_scoring/01)
+  FROM workspace.datathon.bronze_locval_facilities_repaired f
+  WHERE repair_status IN ('clean', 'repaired_head', 'head_no_tail')
+    AND organization_type = 'facility' AND cluster_id IS NOT NULL AND cluster_id <> ''
 ),
 base AS (
   SELECT
@@ -529,8 +534,17 @@ c AS (
   LEFT JOIN other USING (facility_id)
   LEFT JOIN (SELECT city, district AS rc_district FROM workspace.datathon.ref_city_districts) rc
          ON rc.city = upper(trim(s.city_raw)) AND rc.rc_district = s.district
+),
+lv AS (  -- location validation score per cluster_id (notebooks/location_validation_scoring, SCORING_CRITERIA.md)
+  SELECT facility_id, location_validation_score, location_validation_label, location_validation_passed,
+         location_checks, failed_checks AS location_failed_checks, scoring_version AS location_scoring_version
+  FROM workspace.datathon.silver_location_validation
+  WHERE location_validation_status = 'scored'
 )
-SELECT * EXCEPT (quality_flags),
+SELECT c.* EXCEPT (quality_flags),
+  lv.location_validation_score, lv.location_validation_label, lv.location_validation_passed,
+  lv.location_checks, lv.location_failed_checks, lv.location_scoring_version,
+  CASE WHEN lv.facility_id IS NULL THEN 'not_scored' ELSE 'scored' END AS location_validation_status,
   100 + coh_coords_pin + coh_city + coh_state + coh_located_in + coh_other_facility + coh_duplicate AS record_coherence_score,
   (possible_merged_record OR size(possible_duplicate_of) > 0 OR (location_check = 'conflict' AND location_confidence = 'low')) AS identity_conflict,
   concat_ws('; ',
@@ -541,9 +555,11 @@ SELECT * EXCEPT (quality_flags),
   array_compact(concat(quality_flags, array(
     CASE WHEN size(possible_duplicate_of) > 0 THEN 'possible_duplicate' END,
     CASE WHEN coh_city < 0 THEN 'city_text_disagrees' END,
-    CASE WHEN coh_other_facility < 0 THEN 'other_facility_named' END
+    CASE WHEN coh_other_facility < 0 THEN 'other_facility_named' END,
+    CASE WHEN lv.facility_id IS NULL THEN 'location_not_validated' END,
+    CASE WHEN lv.location_validation_score <= 2 THEN 'location_unverified' END
   ))) AS quality_flags
-FROM c;
+FROM c LEFT JOIN lv USING (facility_id);
 
 -- COMMAND ----------
 
@@ -557,3 +573,10 @@ GROUP BY ALL ORDER BY 1, 2;
 SELECT flag, count(*) AS facilities
 FROM workspace.datathon.silver_facilities LATERAL VIEW explode(quality_flags) t AS flag
 GROUP BY flag ORDER BY 2 DESC;
+
+-- COMMAND ----------
+
+-- Health check: location validation score per facility (location_validation_scoring); NULL = not scored
+SELECT location_validation_status, location_validation_score, location_validation_label, count(*) AS facilities
+FROM workspace.datathon.silver_facilities
+GROUP BY ALL ORDER BY 1, 2 DESC;

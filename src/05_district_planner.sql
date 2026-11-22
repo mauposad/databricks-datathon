@@ -97,6 +97,7 @@ fac AS (
   FROM workspace.datathon.gold_facility_services g
   JOIN svc USING (service_key)
   WHERE g.lat IS NOT NULL AND g.evidence_tier IN ('strong', 'moderate', 'probable')
+    AND coalesce(g.location_validation_score, 3) > 2  -- unverified locations (score 0-2) are not used
 ),
 pairs AS (
   SELECT d.district, d.state, d.d_lat, d.d_lon, d.n_pin_areas, f.*,
