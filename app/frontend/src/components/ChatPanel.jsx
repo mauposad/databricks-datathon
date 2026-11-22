@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import { motion } from 'motion/react'
+import { usePresets } from '../motion/presets.js'
+import IconSwap from '../motion/IconSwap.jsx'
 import * as api from '../api.js'
 import { canListen, canSpeak, listen, speak, stopSpeaking } from '../speech.js'
 import Icon from './Icon.jsx'
@@ -14,6 +17,9 @@ export default function ChatPanel({ onResult, voiceFirst = false }) {
   const [autoSpeak, setAutoSpeak] = useState(voiceFirst)
   const [micError, setMicError] = useState('')
   const stopRef = useRef(null)
+  const p = usePresets()
+  const mounted = useRef(false)
+  useEffect(() => { mounted.current = true }, [])
   const endRef = useRef(null)
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }) }, [messages])
@@ -58,18 +64,19 @@ export default function ChatPanel({ onResult, voiceFirst = false }) {
     <div className={`chat ${voiceFirst ? 'voice-mode' : ''}`}>
       <div className="messages">
         {messages.map((m, i) => (
-          <div key={i} className={`msg ${m.role}`}>
+          // M3 on load (history staggers in), M1 for each new message.
+          <motion.div key={i} className={`msg ${m.role}`} {...(mounted.current ? p.enter : p.item(i))}>
             <div className={`bubble ${m.error ? 'bubble-error' : ''}`}>{m.content}</div>
             {m.role === 'assistant' && i > 0 && canSpeak && (
               <Button variant="ghost" size="sm" icon="speaker" onClick={() => speak(m.content)}>Read aloud</Button>
             )}
             {m.meta && <div className="meta">{m.meta}</div>}
-          </div>
+          </motion.div>
         ))}
         {busy && (
-          <div className="msg assistant">
+          <motion.div className="msg assistant" {...p.enter}>
             <div className="bubble typing" role="status" aria-label="Searching"><span className="dots" aria-hidden><i /><i /><i /></span></div>
-          </div>
+          </motion.div>
         )}
         <div ref={endRef} />
       </div>
@@ -78,7 +85,7 @@ export default function ChatPanel({ onResult, voiceFirst = false }) {
         <div className="voice-controls">
           <button type="button" className={`mic big ${listening ? 'on' : ''}`} onClick={toggleMic} disabled={!canListen || busy}
                   aria-label={listening ? 'Stop listening' : 'Start talking'}>
-            <Icon name={listening ? 'stop' : 'mic'} size="xl" />
+            <IconSwap name={listening ? 'stop' : 'mic'} size="xl" />
           </button>
           <div className="muted" aria-live="polite">
             {!canListen ? 'Voice input needs Chrome, Edge or Safari.'
@@ -91,7 +98,7 @@ export default function ChatPanel({ onResult, voiceFirst = false }) {
           {canListen && (
             <button type="button" className={`icon-btn mic ${listening ? 'on' : ''}`} onClick={toggleMic}
                     aria-label={listening ? 'Stop listening' : 'Speak'}>
-              <Icon name={listening ? 'stop' : 'mic'} />
+              <IconSwap name={listening ? 'stop' : 'mic'} />
             </button>
           )}
           <input className="field" value={input} onChange={(e) => setInput(e.target.value)} aria-label="Message"

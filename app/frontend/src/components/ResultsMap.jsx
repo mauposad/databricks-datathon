@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Circle, MapContainer, Marker, Popup, TileLayer, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
+import { useReducedMotion } from 'motion/react'
 
 const INDIA = [22.5, 79]
 
@@ -28,12 +29,17 @@ function FitBounds({ result }) {
   return null
 }
 
+// M7: the camera travels on Leaflet's arc (zoom out, pan, zoom in). Reduced motion jumps straight there.
 function FlyTo({ result, selected }) {
   const map = useMap()
+  const reduced = useReducedMotion()
   useEffect(() => {
     const r = result?.results.find((x) => x.id === selected)
-    if (r?.lat != null) map.flyTo([r.lat, r.lon], Math.max(map.getZoom(), 12), { duration: 0.6 })
-  }, [selected, result, map])
+    if (r?.lat == null) return
+    const zoom = Math.max(map.getZoom(), 12)
+    if (reduced) map.setView([r.lat, r.lon], zoom, { animate: false })
+    else map.flyTo([r.lat, r.lon], zoom, { duration: 0.8, easeLinearity: 0.25 })
+  }, [selected, result, map, reduced])
   return null
 }
 

@@ -24,6 +24,8 @@
 .btn-danger { background: var(--low); color: var(--panel); }
 .btn-icon { display: inline-grid; place-items: center; }
 .btn .icon { transform: translateY(0); }
+.icon-swap { display: inline-grid; place-items: center; }
+.icon-swap-item { display: inline-grid; place-items: center; grid-area: 1 / 1; }
 
 .icon-btn {
   display: inline-grid; place-items: center; flex: none; width: 40px; height: 40px;
@@ -122,7 +124,14 @@ input.field::placeholder, .field input::placeholder { color: var(--muted); }
 .slider-thumb {
   display: block; width: 20px; height: 20px; border-radius: var(--r-pill);
   background: var(--panel); border: 2px solid var(--text);
+  /* M19: --pull moves the thumb past the end with resistance; it returns on release (200ms ease-out).
+     M14: only the pull and the stretch tween. The position itself follows the pointer 1:1 while held. */
+  transform: translateX(var(--pull, 0px)) scaleX(1);
+  transition: transform 200ms var(--ease-out);
 }
+/* M5: stretch 12% along the move axis while held (20px -> 22.4px). */
+.slider-thumb:active, .slider.is-held .slider-thumb { transform: translateX(var(--pull, 0px)) scaleX(var(--stretch)); }
+.slider.is-held .slider-thumb { transition: transform var(--dur-press) var(--ease-out); }
 
 /* Switch */
 .switch-row { display: inline-flex; align-items: center; gap: var(--s-2); font-size: var(--fs-3); line-height: var(--lh-3); }
@@ -138,6 +147,11 @@ input.field::placeholder, .field input::placeholder { color: var(--muted); }
   transform: translateX(0); transition: transform var(--dur-move) var(--ease-in-out);
 }
 .switch[data-state=checked] .switch-thumb { transform: translateX(16px); }
+/* M5: the knob stretches 12% toward the side it will move to while pressed. */
+.switch-thumb { transform-origin: left center; }
+.switch[data-state=checked] .switch-thumb { transform-origin: right center; }
+.switch:active .switch-thumb { transform: translateX(0) scaleX(var(--stretch)); }
+.switch[data-state=checked]:active .switch-thumb { transform: translateX(16px) scaleX(var(--stretch)); }
 
 /* Skeleton: flat opacity pulse */
 .skeleton { display: block; background: var(--line); border-radius: var(--r-sm); animation: pulse 1s ease-in-out infinite alternate; }
@@ -227,8 +241,11 @@ input.field::placeholder, .field input::placeholder { color: var(--muted); }
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-outer); padding: var(--pad);
   cursor: pointer; transition: border-color var(--dur-fast) var(--ease-out);
 }
+.card { position: relative; }
 .card:hover { border-color: var(--control); }
-.card.selected { border-color: var(--accent); }
+/* M20: the selection ring is one shared element that slides between cards (layoutId="card-selection"). */
+.selection-ring { position: absolute; inset: -1px; border: 1px solid var(--accent); border-radius: var(--r-lg); pointer-events: none; z-index: 1; }
+.row .selection-ring { inset: 0; border: none; border-radius: 0; box-shadow: inset 2px 0 0 var(--accent); }
 .card-head { display: flex; gap: var(--s-3); align-items: flex-start; }
 .rank {
   flex: none; width: 28px; height: 28px; border-radius: var(--r-pill); background: var(--subtle); color: var(--text);
@@ -295,10 +312,11 @@ input.field::placeholder, .field input::placeholder { color: var(--muted); }
 .caution .icon { margin-top: 2px; }
 
 /* Compact rows, ranks 2 to 5 */
-.rows { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); overflow: hidden; }
+.rows { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); }
 .card.row { border: none; border-radius: 0; padding: 0; cursor: default; }
-.card.row + .card.row { border-top: 1px solid var(--line); }
-.card.row.selected { box-shadow: inset 2px 0 0 var(--accent); }
+.rows > * + * { border-top: 1px solid var(--line); }
+.rows > :first-child .row-head { border-radius: var(--r-lg) var(--r-lg) 0 0; }
+.rows > :last-child .card.row:not(.expanded) .row-head { border-radius: 0 0 var(--r-lg) var(--r-lg); }
 .row-head { display: flex; gap: var(--s-3); align-items: center; padding: var(--s-3) var(--s-3) var(--s-3) var(--s-5); cursor: pointer; min-height: 56px; }
 .row-head:hover { background: var(--subtle); }
 .row-title { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-2); }
@@ -306,8 +324,6 @@ input.field::placeholder, .field input::placeholder { color: var(--muted); }
 .row-travel { flex: none; font-weight: var(--fw-strong); font-size: var(--fs-3); }
 .row-actions { display: inline-flex; gap: var(--s-1); align-items: center; flex: none; }
 .btn.icon-only { width: 40px; min-height: 40px; padding: 0; }
-.row-chevron .icon { transition: transform var(--dur-fast) var(--ease-out); }
-.row-chevron[aria-expanded=true] .icon { transform: rotate(180deg); }
 .row-body { padding: 0 var(--s-5) var(--s-5) calc(var(--s-5) + 28px + var(--s-3)); }
 .row-body .stats { margin-top: var(--s-3); }
 .row-body .stat-main .stat-value { font-size: var(--fs-5); line-height: var(--lh-5); }
@@ -321,8 +337,6 @@ details[open] > summary .chev { transform: rotate(90deg); }
 .actions { display: flex; flex-wrap: wrap; gap: var(--s-2); align-items: center; margin-top: var(--s-4); cursor: default; }
 .actions .num { font-weight: var(--fw-strong); }
 .details-toggle { margin-left: auto; }
-.details-toggle .icon { transition: transform var(--dur-fast) var(--ease-out); }
-.details-toggle[aria-expanded=true] .icon { transform: rotate(180deg); }
 
 .details { margin-top: var(--s-4); border-top: 1px solid var(--line); padding-top: var(--s-3); cursor: default; }
 .address { margin-bottom: var(--s-2); font-size: var(--fs-3); overflow-wrap: anywhere; display: flex; gap: var(--s-2); align-items: flex-start; }
@@ -486,3 +500,46 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
   .row-body { padding: 0 var(--s-4) var(--s-4); }
   .details-toggle { margin-left: 0; }
 }
+
+/* ================= Motion (M-codes refer to the plan; values from tokens.css) ================= */
+
+/* M4: press scale 0.97, 100ms ease-out; release 160ms (the base transition on each control). */
+.btn, .tab, .icon-btn, .mic, .row-head, .select-trigger { transition-property: background-color, border-color, color, transform; transition-duration: var(--dur-release); transition-timing-function: var(--ease-out); }
+.btn:not(:disabled):active, .tab:active, .icon-btn:not(:disabled):active, .mic:not(:disabled):active, .row-head:active, .select-trigger:active {
+  transform: scale(var(--press-scale)); transition-duration: var(--dur-press);
+}
+.row-head:active { transform: scale(.99); /* M4 adapted: a full-width row at 0.97 moves its edges 9px; 0.99 reads the same */ }
+
+/* M2, M10, M11, M12: pop surfaces open from the trigger at 0.95, exit back to it, 20% faster. */
+@keyframes pop-in { from { opacity: 0; transform: scale(var(--pop-scale)); } to { opacity: 1; transform: scale(1); } }
+@keyframes pop-out { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(var(--pop-scale)); } }
+.popover, .combobox-content { transform-origin: var(--radix-popover-content-transform-origin); }
+.select-content { transform-origin: var(--radix-select-content-transform-origin); }
+.tooltip { transform-origin: var(--radix-tooltip-content-transform-origin); }
+.popover[data-state=open] { animation: pop-in var(--dur-pop) var(--ease-out); }
+.popover[data-state=closed] { animation: pop-out var(--dur-pop-exit) var(--ease-out); }
+.combobox-content[data-state=open], .select-content[data-state=open] { animation: pop-in var(--dur-list) var(--ease-out); }
+.combobox-content[data-state=closed], .select-content[data-state=closed] { animation: pop-out var(--dur-list-exit) var(--ease-out); }
+.tooltip[data-state=delayed-open], .tooltip[data-state=instant-open] { animation: pop-in var(--dur-fast) var(--ease-out); }
+.tooltip[data-state=closed] { animation: pop-out calc(var(--dur-fast) * .8) var(--ease-out); }
+@keyframes dialog-in { from { opacity: 0; transform: translate(-50%, -50%) scale(var(--pop-scale)); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+@keyframes dialog-out { from { opacity: 1; transform: translate(-50%, -50%) scale(1); } to { opacity: 0; transform: translate(-50%, -50%) scale(var(--pop-scale)); } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+.dialog[data-state=open] { animation: dialog-in var(--dur-enter) var(--ease-out); }
+.dialog[data-state=closed] { animation: dialog-out var(--dur-exit) var(--ease-out); }
+.dialog-overlay[data-state=open] { animation: fade-in var(--dur-enter) var(--ease-out); }
+.dialog-overlay[data-state=closed] { animation: fade-out var(--dur-exit) var(--ease-out); }
+/* Leaflet popup: the same pop, from its tip. Leaflet owns the outer transform, so animate the inner wrapper. */
+.leaflet-popup-content-wrapper { transform-origin: 50% 100%; animation: pop-in var(--dur-pop) var(--ease-out); }
+
+/* M1 for toasts: sonner moves its own toasts; give it our duration and curve. */
+[data-sonner-toast] { transition-duration: var(--dur-enter) !important; transition-timing-function: var(--ease-out) !important; }
+
+/* M3: planner rows, first 10 only, 30ms apart, capped at 150ms. */
+@keyframes row-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.planner-table tbody tr:nth-child(-n+10) { animation: row-in var(--dur-enter) var(--ease-out) both; }
+.planner-table tbody tr:nth-child(2) { animation-delay: calc(var(--stagger) * 1); }
+.planner-table tbody tr:nth-child(3) { animation-delay: calc(var(--stagger) * 2); }
+.planner-table tbody tr:nth-child(4) { animation-delay: calc(var(--stagger) * 3); }
+.planner-table tbody tr:nth-child(n+5):nth-child(-n+10) { animation-delay: calc(var(--stagger) * 4); }

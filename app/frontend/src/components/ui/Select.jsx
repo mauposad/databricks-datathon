@@ -4,7 +4,7 @@ import Icon from '../Icon.jsx'
 // options: [{ value, label }]. Values must be non-empty strings (Radix rule).
 export default function Select({ value, onValueChange, options, placeholder, label, disabled, loading, loadingText, className = '', id }) {
   return (
-    <S.Root value={value || undefined} onValueChange={onValueChange} disabled={disabled || loading}>
+    <S.Root value={value || ''} onValueChange={onValueChange} disabled={disabled || loading}>
       <S.Trigger id={id} className={`field select-trigger ${className}`} aria-label={label}>
         <S.Value placeholder={loading ? (loadingText || 'Loading') : placeholder} />
         <S.Icon className="select-chevron">

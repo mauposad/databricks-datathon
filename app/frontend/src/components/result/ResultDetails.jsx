@@ -1,4 +1,7 @@
+import { Children, forwardRef } from 'react'
+import { motion } from 'motion/react'
 import Icon from '../Icon.jsx'
+import { usePresets } from '../../motion/presets.js'
 import ScoreBreakdown from '../ScoreBreakdown.jsx'
 import VerifyAction from './VerifyAction.jsx'
 import Checklist from './Checklist.jsx'
@@ -16,11 +19,14 @@ function Section({ title, defaultOpen = false, children }) {
 }
 
 // Everything behind "Details". Nothing here is dropped from the old card; only the titles changed.
-export default function ResultDetails({ rec, d, verify }) {
+// M17: the panel opens with a mask (clip-path), not a height tween. M6: its sections settle one after another.
+const ResultDetails = forwardRef(function ResultDetails({ rec, d, verify }, ref) {
   const { headsUp, minor, reason } = d
   const more = headsUp.slice(1)  // the first heads-up is on the card front
+  const p = usePresets()
   return (
-    <div className="details" onClick={(e) => e.stopPropagation()}>
+    <motion.div ref={ref} className="details" onClick={(e) => e.stopPropagation()} {...p.revealDown}>
+      <Settle>
       <p className="address"><Icon name="pin" /><span>{d.uniqueAddress || 'Address not listed'}</span></p>
 
       {rec.checks?.length > 0 && (
@@ -89,6 +95,13 @@ export default function ResultDetails({ rec, d, verify }) {
           </details>
         </Section>
       )}
-    </div>
+      </Settle>
+    </motion.div>
   )
+})
+export default ResultDetails
+
+function Settle({ children }) {
+  const p = usePresets()
+  return Children.toArray(children).filter(Boolean).map((c, i) => <motion.div key={c.key ?? i} {...p.settle(i)}>{c}</motion.div>)
 }

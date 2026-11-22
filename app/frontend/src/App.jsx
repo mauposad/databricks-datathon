@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react'
+import { AnimatePresence, LayoutGroup, motion } from 'motion/react'
+import { usePresets } from './motion/presets.js'
+import { StaggerItem } from './motion/Stagger.jsx'
 import * as api from './api.js'
 import SearchForm from './components/SearchForm.jsx'
 import ChatPanel from './components/ChatPanel.jsx'
@@ -55,6 +58,7 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)        // { text, detail, retry }
   const [selected, setSelected] = useState(null)  // facility id
+  const p = usePresets()
 
   function loadServices() {
     setServicesLoading(true); setError(null)
@@ -101,18 +105,23 @@ export default function App() {
           <Icon name="logo" size="md" className="logo" />
           <h1>Care Finder</h1>
         </div>
-        <Tabs items={VIEWS} value={view} onChange={setView} label="View" className="view-switch" />
+        <Tabs items={VIEWS} value={view} onChange={setView} label="View" id="view" className="view-switch" />
       </header>
 
       {view === 'planner' ? <main className="planner-layout"><Planner /></main> : (
       <main className="layout">
         <section className="left">
           <div className="panel input-panel">
-            <Tabs items={MODES} value={mode} onChange={setMode} label="Input mode" className="input-tabs" />
-            {mode === 'form' && <SearchForm services={services} places={places} servicesLoading={servicesLoading}
-                                            placesLoading={placesLoading} loading={loading} onSearch={runSearch} />}
-            {mode === 'chat' && <ChatPanel onResult={showResult} />}
-            {mode === 'voice' && <VoicePanel onResult={showResult} />}
+            <Tabs items={MODES} value={mode} onChange={setMode} label="Input mode" id="input" className="input-tabs" />
+            {/* M16: the old panel leaves while the new one enters */}
+            <AnimatePresence mode="popLayout" initial={false}>
+              <motion.div key={mode} {...p.fade}>
+                {mode === 'form' && <SearchForm services={services} places={places} servicesLoading={servicesLoading}
+                                                placesLoading={placesLoading} loading={loading} onSearch={runSearch} />}
+                {mode === 'chat' && <ChatPanel onResult={showResult} />}
+                {mode === 'voice' && <VoicePanel onResult={showResult} />}
+              </motion.div>
+            </AnimatePresence>
           </div>
 
           {error && (
@@ -133,8 +142,9 @@ export default function App() {
             </div>
           )}
 
+          <AnimatePresence mode="popLayout" initial={false}>
           {result && !loading && (
-            <div className="summary">
+            <motion.div key={headline(result, nMain)} className="summary" {...p.enter}>
               <h2>{headline(result, nMain)}</h2>
               <p className="muted num">
                 {result.n_candidates} facilities checked
@@ -152,30 +162,40 @@ export default function App() {
                 )}
                 <HowWeScore method={result.method} rule={results[0]?.confidence.rule} />
               </div>
-            </div>
+            </motion.div>
           )}
+          </AnimatePresence>
           {result?.notes?.map((n) => <div key={n} className="alert note">{n}</div>)}
 
-          {loading && <ResultsSkeleton />}
+          {/* M16: skeleton, results and the example overlap as they swap. M3: cards stagger 30ms. */}
+          <AnimatePresence mode="popLayout" initial={false}>
+          {loading && <motion.div key="loading" {...p.fade}><ResultsSkeleton /></motion.div>}
 
           {!loading && results.length > 0 && (
-            <div className={`cards ${refreshing ? 'is-refreshing' : ''}`} aria-busy={refreshing || undefined}>
+            <motion.div key={`results-${result.query.service}-${result.query.place}-${result.query.max_km}`} {...p.fade}
+                        className={`cards ${refreshing ? 'is-refreshing' : ''}`} aria-busy={refreshing || undefined}>
               {refreshing && <span className="progress-line" aria-hidden />}
-              <ResultHero rec={results[0]} top={results[0]} selected={selected === results[0].id}
-                          onSelect={() => setSelected(results[0].id)} verify={verifyFor(results[0])} />
-              {results.length > 1 && (
-                <div className="rows">
-                  {results.slice(1).map((r) => (
-                    <ResultRow key={r.id} rec={r} top={results[0]} selected={selected === r.id}
-                               onSelect={() => setSelected(r.id)} verify={verifyFor(r)} />
-                  ))}
-                </div>
-              )}
-            </div>
+              <LayoutGroup>
+                <StaggerItem index={0}>
+                  <ResultHero key={results[0].id} rec={results[0]} top={results[0]} selected={selected === results[0].id}
+                              onSelect={() => setSelected(results[0].id)} verify={verifyFor(results[0])} />
+                </StaggerItem>
+                {results.length > 1 && (
+                  <div className="rows">
+                    {results.slice(1).map((r, i) => (
+                      <StaggerItem key={r.id} index={i + 1} layout="position" transition={p.move}>
+                        <ResultRow rec={r} top={results[0]} selected={selected === r.id}
+                                   onSelect={() => setSelected(r.id)} verify={verifyFor(r)} />
+                      </StaggerItem>
+                    ))}
+                  </div>
+                )}
+              </LayoutGroup>
+            </motion.div>
           )}
 
           {!result && !loading && (
-            <section className="example" aria-label="Example result">
+            <motion.section key="example" className="example" aria-label="Example result" {...p.fade}>
               <div className="example-head">
                 <p><b>Example result</b> <span className="muted">Made-up data. It shows what a search returns.</span></p>
                 <Button size="sm" icon="search" onClick={() => runSearch(DEMO)}>Try an example</Button>
@@ -183,8 +203,9 @@ export default function App() {
               <div className="example-card" inert="">
                 <ResultHero rec={SAMPLE_RESULTS[0]} top={SAMPLE_RESULTS[0]} example onSelect={() => {}} />
               </div>
-            </section>
+            </motion.section>
           )}
+          </AnimatePresence>
         </section>
 
         <section className="right">

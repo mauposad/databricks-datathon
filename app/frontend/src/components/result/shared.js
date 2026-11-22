@@ -31,10 +31,14 @@ export const fmtKm = (km) => (km < 1 ? 'under 1 km' : `${km} km`)
 export const tagNumber = (tags, word) => tags.map((t) => t.match(new RegExp(`^(\\d+) ${word}`))).find(Boolean)?.[1]
 export const directionsHref = (rec) => `https://www.google.com/maps/dir/?api=1&destination=${rec.lat},${rec.lon}`
 
+// Facilities whose service was just confirmed: their "Confirmed by phone" line pulses once (M8).
+export const justConfirmed = new Set()
+
 // Record a reviewer decision (with an optional note) in the verifications overlay, then re-run the search.
 // The note is asked for in a popover next to the button (VerifyAction.jsx), not in a blocking prompt.
 export async function saveVerification({ facilityId, serviceKey, checkKey, status, label, note, onVerified }) {
   await api.verify({ facility_id: facilityId, service_key: serviceKey, check_key: checkKey, status, note: note || null })
+  if (checkKey === 'service' && status === 'confirmed') justConfirmed.add(facilityId)
   toast.success(`Saved: ${status === 'confirmed' ? 'confirmed' : 'rejected'} "${label}"`, { description: 'Everyone sees this the next time the search runs.' })
   onVerified?.(facilityId)
 }

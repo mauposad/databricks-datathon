@@ -1,15 +1,32 @@
+import { useEffect } from 'react'
+import { motion } from 'motion/react'
 import Icon from '../Icon.jsx'
+import Reveal from '../../motion/Reveal.jsx'
+import { usePresets } from '../../motion/presets.js'
 import { Button } from '../ui/index.js'
 import PickStrength from './PickStrength.jsx'
 import { locationNote } from './LocationChecks.jsx'
-import { directionsHref, fmtKm, fmtMin, telHref, withScheme } from './shared.js'
+import { directionsHref, fmtKm, fmtMin, justConfirmed, telHref, withScheme } from './shared.js'
+
+// M8: "Confirmed by phone" pulses once when it first appears after a save. It does not pulse on a fresh search
+// The set is filled by saveVerification for a confirmed service, just before the search re-runs.
+function ConfirmedSignal({ id }) {
+  const p = usePresets()
+  const pulse = justConfirmed.has(id)
+  useEffect(() => { justConfirmed.delete(id) }, [id])
+  return (
+    <motion.span className="meta-good" initial={false} animate={pulse ? p.pulse : undefined}>
+      <Icon name="check" />Confirmed by phone
+    </motion.span>
+  )
+}
 
 // One line of plain text under the name: facts, then the signals that used to be badges.
 export function MetaLine({ rec, d }) {
   const loc = locationNote(rec.location_validation)
   const items = [
     ...d.facts.map((f) => <span key={f}>{f}</span>),
-    rec.verified_service === 'confirmed' && <span key="conf" className="meta-good"><Icon name="check" />Confirmed by phone</span>,
+    rec.verified_service === 'confirmed' && <ConfirmedSignal key="conf" id={rec.id} />,
     rec.is_nearest_alternative && <span key="near">Closest option</span>,
     loc && <span key="loc">{loc}</span>,
   ].filter(Boolean)
@@ -33,14 +50,14 @@ export function Stats({ rec, d, showQuality }) {
         <div className="stat">
           <dt>{rec.score.mode === 'quality_first' ? 'Quality' : 'Match score'}</dt>
           <dd className="stat-value num">{Math.round(rec.score.match)} <span className="of">of 100</span></dd>
-          <dd className="meter bar-meter" aria-hidden><i style={{ width: `${Math.max(0, Math.min(100, rec.score.match))}%` }} /></dd>
+          <Reveal as="dd" className="meter bar-meter" aria-hidden><i style={{ width: `${Math.max(0, Math.min(100, rec.score.match))}%` }} /></Reveal>
         </div>
       )}
       {d.total > 0 ? (
         <div className="stat">
           <dt>Key items found</dt>
           <dd className="stat-value num">{d.found} <span className="of">of {d.total}</span></dd>
-          <dd className="meter" aria-hidden>{rec.checks.map((c) => <i key={c.key} className={`m-${c.status}`} />)}</dd>
+          <Reveal as="dd" className="meter" aria-hidden>{rec.checks.map((c) => <i key={c.key} className={`m-${c.status}`} />)}</Reveal>
         </div>
       ) : (
         <div className="stat">
@@ -87,7 +104,7 @@ export function Actions({ rec, hero, open, onToggle }) {
         : <span className="muted small">No phone listed</span>}
       {rec.lat != null && <Button as="a" icon="directions" href={directionsHref(rec)} target="_blank" rel="noreferrer">Directions</Button>}
       {rec.website && <Button as="a" icon="globe" href={withScheme(rec.website)} target="_blank" rel="noreferrer">Website</Button>}
-      <Button variant="ghost" className="details-toggle" onClick={onToggle} aria-expanded={open} iconRight="chevronDown">
+      <Button variant="ghost" className="details-toggle" onClick={onToggle} aria-expanded={open} iconRight={open ? 'chevronUp' : 'chevronDown'} iconRightSwap>
         {open ? 'Hide details' : 'Details'}
       </Button>
     </div>
