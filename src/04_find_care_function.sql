@@ -10,9 +10,11 @@
 -- MAGIC
 -- MAGIC **Ranking rule (printed verbatim in every result's `ranking_rule`):** among facilities reachable within the
 -- MAGIC service's travel budget (`ref_service_policy`, e.g. 60 min for an emergency C-section, 45 min for dialysis because
--- MAGIC patients travel 3× a week, 240 min for planned cardiac surgery), rank by **Quality**; if two are within 10 Quality
+-- MAGIC patients travel 3× a week, 240 min for planned cardiac surgery), **High-confidence options come first, then
+-- MAGIC Medium, then Low/Probable** (a less certain facility is never ranked above a more certain one). Within each
+-- MAGIC confidence group, rank by **Quality**; if two are within 10 Quality
 -- MAGIC points, the closer one wins (`greedy_rank`: at each rank take the best remaining Quality, or the closest facility
--- MAGIC within 10 points of it). Facilities beyond the budget follow, labelled
+-- MAGIC within 10 points of it). Facilities beyond the budget follow, in the same confidence order, labelled
 -- MAGIC "farther option". Weak (unconfirmed) evidence always comes last. If nothing with strong/moderate/probable evidence is
 -- MAGIC inside the search radius, the radius is doubled (up to 300 km) and the result says so.
 -- MAGIC
@@ -218,11 +220,18 @@ RETURNS TABLE (
   possible_duplicate_names ARRAY<STRING>,
   -- Phase 5: one concrete fact to confirm by phone
   call_to_confirm STRING,
-  -- Phase 6: human verification overlay and stability across named scenarios
+  -- Phase 6: human verification overlay
   verifications ARRAY<STRUCT<check_key: STRING, status: STRING, reviewer: STRING, ts: TIMESTAMP, note: STRING, evidence_url: STRING>>,
   verified_service STRING, q_verified INT,
-  scenarios_n INT, stable_first_in INT, stability_note STRING,
-  scenario_winners ARRAY<STRUCT<scenario: STRING, winner: STRING>>)
+  -- "How solid is this pick?" (#1 only): the ranking re-run with one doubt at a time.
+  --   kind 'data': doubts about the records (decide Solid vs Shaky); kind 'situation': the patient's circumstances.
+  --   still_first NULL = no facility passes that check at all.
+  double_checks ARRAY<STRUCT<kind: STRING, label: STRING, still_first: BOOLEAN, winner: STRING>>,
+  pick_strength STRING, pick_strength_note STRING,
+  -- other cards: "Would be your best option if you can travel up to 2 hours."
+  tip_note STRING,
+  -- confidence label (High / Medium / Low / Probable / Unconfirmed); the ranking orders by it before Quality
+  confidence_label STRING)
 COMMENT 'Ranked facilities for a service near a place: quality-first within a travel-time budget, with cited evidence (why), score arithmetic (how), trade-offs and uncertainty'
 RETURN
   WITH loc AS (SELECT * FROM workspace.datathon.resolve_location(place)),
@@ -266,21 +275,35 @@ RETURN
     WHERE g.lat IS NOT NULL AND workspace.datathon.haversine_km(loc.lat, loc.lon, g.lat, g.lon) <= greatest(300, max_km)
       AND (operator_filter IS NULL OR g.operator_type = lower(operator_filter))
   ),
+  vdelta AS (  -- Quality points that reviewer verifications add or remove (0 when there is no checklist)
+    -- Services ranked by keyword rules have no checklist (evidence_checks IS NULL). Every term must be coalesced:
+    -- least()/greatest() skip NULLs, so a NULL here once turned every such facility's Quality into exactly 100.
+    SELECT b.*,
+           CAST(round((coalesce(aggregate(b.checks_v, 0, (acc, c) -> acc + c.points), 0)
+                     - coalesce(aggregate(b.evidence_checks, 0, (acc, c) -> acc + c.points), 0)) * 50.0 / 60) AS INT) AS q_delta
+    FROM base b
+  ),
   allc AS (  -- verified checks change the evidence points (scaled to the 50-point Quality evidence part)
-    SELECT b.* EXCEPT (evidence_checks, quality_score, q_evidence, checks_found, checks_v),
+    SELECT b.* EXCEPT (evidence_checks, quality_score, q_evidence, checks_found, checks_v, q_delta),
            b.checks_v AS evidence_checks,
            CAST(size(filter(b.checks_v, c -> c.status = 'found')) AS INT) AS checks_found,
-           CAST(round((aggregate(b.checks_v, 0, (acc, c) -> acc + c.points) - aggregate(coalesce(b.evidence_checks, array()), 0, (acc, c) -> acc + c.points)) * 50.0 / 60) AS INT) AS q_verified,
-           least(50, greatest(0, b.q_evidence + CAST(round((aggregate(b.checks_v, 0, (acc, c) -> acc + c.points)
-                   - aggregate(coalesce(b.evidence_checks, array()), 0, (acc, c) -> acc + c.points)) * 50.0 / 60) AS INT))) AS q_evidence,
-           greatest(0, least(100, b.quality_score + CAST(round((aggregate(b.checks_v, 0, (acc, c) -> acc + c.points)
-                   - aggregate(coalesce(b.evidence_checks, array()), 0, (acc, c) -> acc + c.points)) * 50.0 / 60) AS INT))) AS quality_score,
+           b.q_delta AS q_verified,
+           least(50, greatest(0, b.q_evidence + b.q_delta)) AS q_evidence,
+           greatest(0, least(100, b.quality_score + b.q_delta)) AS quality_score,
            -- a reviewer saying the service itself is not available removes it from the qualifying list;
            -- a reviewer confirming it makes even weak evidence qualify
            CASE WHEN b.verified_service = 'rejected' THEN false
                 WHEN b.verified_service = 'confirmed' THEN true
-                ELSE b.evidence_tier IN ('strong', 'moderate', 'probable') END AS qualifies
-    FROM base b
+                ELSE b.evidence_tier IN ('strong', 'moderate', 'probable') END AS qualifies,
+           -- Confidence label (single source of truth; the app shows it as the card badge). A reviewer's phone
+           -- confirmation counts as High; an identity conflict caps it at Medium.
+           CASE WHEN b.verified_service = 'confirmed' THEN 'High'
+                WHEN b.evidence_tier = 'weak' THEN 'Unconfirmed'
+                WHEN b.evidence_tier = 'probable' THEN 'Probable'
+                WHEN b.trust_score >= 70 AND NOT coalesce(b.identity_conflict, false) THEN 'High'
+                WHEN b.trust_score >= 45 THEN 'Medium'
+                ELSE 'Low' END AS confidence_label
+    FROM vdelta b
   ),
   radius AS (  -- auto-radius: double the search radius (up to 300 km) until a qualifying facility is inside it
     SELECT min(km) FILTER (WHERE qualifies) AS nearest_q_km,
@@ -294,43 +317,59 @@ RETURN
     SELECT a.*, r.eff_km, r.nearest_q_km,
            CAST(round(a.km * 1.4 / 35 * 60) AS INT) AS travel,
            a.km * 1.4 / 35 * 60 <= a.budget AS in_budget,
-           CASE WHEN a.qualifies AND a.km * 1.4 / 35 * 60 <= a.budget THEN 1 WHEN a.qualifies THEN 2 ELSE 3 END AS band
+           CASE WHEN a.qualifies AND a.km * 1.4 / 35 * 60 <= a.budget THEN 1 WHEN a.qualifies THEN 2 ELSE 3 END AS band,
+           -- confidence group: 1 High, 2 Medium, 3 Low or Probable (we never put a less certain facility above a more
+           -- certain one in the same reachability band, whatever its Quality)
+           CASE a.confidence_label WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END AS conf_group,
+           -- ordering band used by the ranking: reachable High < reachable Medium < reachable Low/Probable
+           -- < farther High < farther Medium < farther Low/Probable < unconfirmed
+           CASE WHEN NOT a.qualifies THEN 9
+                ELSE CASE WHEN a.km * 1.4 / 35 * 60 <= a.budget THEN 0 ELSE 3 END
+                     + CASE a.confidence_label WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END END AS rank_band
     FROM allc a CROSS JOIN radius r
     WHERE a.km <= r.eff_km
   ),
   greedy AS (
     SELECT workspace.datathon.greedy_rank(collect_list(named_struct(
-             'id', facility_id, 'q', CAST(quality_score AS INT), 'km', km, 'band', band)), 100) AS ord
+             'id', facility_id, 'q', CAST(quality_score AS INT), 'km', km, 'band', rank_band)), 100) AS ord
     FROM cand WHERE band < 3
   ),
-  scen0 AS (  -- named "what if" scenarios: who would be #1 under each (no random sampling)
+  scen0 AS (  -- double-checks: who would be #1 if we re-ran the ranking with one doubt at a time (no random sampling)
     SELECT map_from_entries(collect_list(struct(facility_id, name))) AS names,
+      CAST(max(budget) * 2 AS INT) AS budget2,
       get(workspace.datathon.greedy_rank(
-          collect_list(named_struct('id', facility_id, 'q', CAST(quality_score AS INT), 'km', km, 'band', CASE WHEN in_budget THEN 1 ELSE 2 END))
+          collect_list(named_struct('id', facility_id, 'q', CAST(quality_score AS INT), 'km', km, 'band', rank_band))
             FILTER (WHERE evidence_tier = 'strong' AND qualifies), 1), 0).id AS w_strong,
       get(workspace.datathon.greedy_rank(
-          collect_list(named_struct('id', facility_id, 'q', CAST(quality_score AS INT), 'km', km, 'band', band))
+          collect_list(named_struct('id', facility_id, 'q', CAST(quality_score AS INT), 'km', km, 'band', rank_band))
             FILTER (WHERE band < 3 AND n_source_domains > 1), 1), 0).id AS w_multi,
       get(workspace.datathon.greedy_rank(
           collect_list(named_struct('id', facility_id, 'q', CAST(quality_score AS INT), 'km', km_alt,
-                                    'band', CASE WHEN km_alt * 1.4 / 35 * 60 <= budget THEN 1 ELSE 2 END))
+                                    'band', CASE WHEN km_alt * 1.4 / 35 * 60 <= budget THEN 0 ELSE 3 END + conf_group))
             FILTER (WHERE qualifies), 1), 0).id AS w_alt,
       get(workspace.datathon.greedy_rank(
           collect_list(named_struct('id', facility_id, 'q', CAST(quality_score AS INT), 'km', km,
-                                    'band', CASE WHEN km * 1.4 / 35 * 60 <= 2 * budget THEN 1 ELSE 2 END))
+                                    'band', CASE WHEN km * 1.4 / 35 * 60 <= 2 * budget THEN 0 ELSE 3 END + conf_group))
             FILTER (WHERE qualifies), 1), 0).id AS w_budget,
       get(workspace.datathon.greedy_rank(
-          collect_list(named_struct('id', facility_id, 'q', CAST(quality_score - q_readiness AS INT), 'km', km, 'band', band))
+          collect_list(named_struct('id', facility_id, 'q', CAST(quality_score - q_readiness AS INT), 'km', km, 'band', rank_band))
             FILTER (WHERE band < 3), 1), 0).id AS w_noready
     FROM cand
   ),
   scen AS (
     SELECT names, array(
-      named_struct('scenario', 'Only strong evidence counts', 'winner', w_strong),
-      named_struct('scenario', 'Single-source records ignored', 'winner', w_multi),
-      named_struct('scenario', 'Uncertain locations moved to their alternate', 'winner', w_alt),
-      named_struct('scenario', 'Travel budget doubled', 'winner', w_budget),
-      named_struct('scenario', 'Readiness ignored (evidence and reliability only)', 'winner', w_noready)) AS scenarios
+      -- doubts about the data: these decide whether #1 is a Solid or a Shaky pick
+      named_struct('kind', 'data', 'key', 'strong', 'label', 'Only facilities with detailed evidence count', 'winner', w_strong),
+      named_struct('kind', 'data', 'key', 'multi', 'label', 'Facilities found on just one website are ignored', 'winner', w_multi),
+      named_struct('kind', 'data', 'key', 'alt', 'label', 'Fuzzy addresses are moved to their other recorded location', 'winner', w_alt),
+      -- the patient's situation: shown as tips, never counted against #1
+      named_struct('kind', 'situation', 'key', 'budget',
+                   'label', concat('You can travel up to ', CASE WHEN budget2 % 60 = 0 THEN concat(CAST(budget2 DIV 60 AS STRING), ' hours')
+                                                                 ELSE concat(CAST(budget2 AS STRING), ' min') END),
+                   'winner', w_budget),
+      named_struct('kind', 'situation', 'key', 'noready',
+                   'label', 'Only the evidence matters, not hospital size or backup services like ICU and blood bank',
+                   'winner', w_noready)) AS scenarios
     FROM scen0
   ),
   ranked AS (
@@ -339,7 +378,7 @@ RETURN
                 THEN array_position(transform(g.ord, o -> o.id), c.facility_id)
                 ELSE coalesce(size(g.ord), 0) + row_number() OVER (
                        PARTITION BY array_position(transform(g.ord, o -> o.id), c.facility_id) > 0
-                       ORDER BY c.band, c.quality_score DESC, c.km) END AS INT) AS rnk,
+                       ORDER BY c.rank_band, c.quality_score DESC, c.km) END AS INT) AS rnk,
       get(filter(g.ord, o -> o.id = c.facility_id), 0).qstar AS qstar,
       CAST(count(*) OVER () AS INT) AS n_cand,
       min_by(c.facility_id, c.km) OVER (PARTITION BY c.qualifies) AS nearest_id_in_group
@@ -368,7 +407,10 @@ RETURN
              WHEN (SELECT count(*) FROM ranked WHERE band = 1) = 0 THEN
                concat('Nothing confirmed is within the ', CAST((SELECT max(budget) FROM svc) AS STRING), '-minute travel budget for this service. ',
                       'Nearest confirmed option is ', CAST(round(r.nearest_q_km) AS INT), ' km (about ',
-                      CAST(round(r.nearest_q_km * 1.4 / 35 * 60) AS INT), ' min) away.') END) AS search_note
+                      CAST(round(r.nearest_q_km * 1.4 / 35 * 60) AS INT), ' min) away.') END,
+        CASE WHEN (SELECT first(confidence_label) FROM top1) IN ('Medium', 'Low', 'Probable') THEN
+          concat('No high-confidence option was found for this service, so even #1 is ',
+                 lower((SELECT first(confidence_label) FROM top1)), ' confidence. Call ahead before travelling.') END) AS search_note
     FROM radius r
   ),
   enriched AS (
@@ -378,12 +420,14 @@ RETURN
       (rk.band = 2 AND t.band = 1 AND rk.quality_score >= t.quality_score + 10
        AND rk.facility_id = max_by(rk.facility_id, struct(rk.quality_score, -rk.km)) OVER (PARTITION BY rk.band)) AS is_better_farther,
       t.name AS top_name, t.quality_score AS top_q, t.travel AS top_travel, t.checks_found AS top_cf, t.checks_total AS top_ct,
-      t.evidence_tier AS top_tier, t.support_found AS top_support,
-      size(filter(sc.scenarios, x -> x.winner = rk.facility_id)) AS stable_n,
-      transform(sc.scenarios, x -> named_struct('scenario', x.scenario,
-                                                'winner', coalesce(element_at(sc.names, x.winner), 'no facility qualifies'))) AS scenario_winners,
-      filter(sc.scenarios, x -> x.winner = rk.facility_id) AS won_in,
-      filter(sc.scenarios, x -> x.winner IS DISTINCT FROM rk.facility_id) AS lost_in,
+      t.evidence_tier AS top_tier, t.support_found AS top_support, t.conf_group AS top_conf_group,
+      t.confidence_label AS top_conf,
+      transform(sc.scenarios, x -> named_struct('kind', x.kind, 'label', x.label,
+                                                'still_first', x.winner = rk.facility_id,
+                                                'winner', element_at(sc.names, x.winner))) AS double_checks,
+      -- data checks that put a different facility first (a check nobody passes doesn't count against #1)
+      filter(sc.scenarios, x -> x.kind = 'data' AND x.winner IS NOT NULL AND x.winner <> rk.facility_id) AS data_lost,
+      filter(sc.scenarios, x -> x.kind = 'situation' AND x.winner = rk.facility_id) AS situation_won,
       sc.names AS names
     FROM ranked rk CROSS JOIN top1 t CROSS JOIN scen sc
   )
@@ -413,8 +457,13 @@ RETURN
       CASE band
         WHEN 3 THEN 'Ranked after all confirmed/probable options because its evidence is weak.'
         ELSE concat('Travel about ', CAST(travel AS STRING), ' min vs a ', CAST(budget AS STRING), '-min budget (',
-                    CASE WHEN in_budget THEN 'reachable' ELSE 'farther option' END, '). At rank ', CAST(rnk AS STRING),
-                    ' the best remaining Quality was ', CAST(qstar AS STRING),
+                    CASE WHEN in_budget THEN 'reachable' ELSE 'farther option' END, '). Confidence: ', confidence_label,
+                    CASE WHEN conf_group > top_conf_group AND band = 1
+                         THEN concat(', so it comes after every reachable ', CASE conf_group WHEN 2 THEN 'High' ELSE 'High or Medium' END,
+                                     '-confidence option')
+                         ELSE '' END,
+                    '. At rank ', CAST(rnk AS STRING),
+                    ' the best remaining Quality in its confidence group was ', CAST(qstar AS STRING),
                     CASE WHEN quality_score = qstar THEN '; this is that facility'
                          ELSE concat('; this facility is ', CAST(qstar - quality_score AS STRING), ' points below it but closer, and within 10 points the closer one wins') END,
                     '.') END) AS how,
@@ -462,7 +511,10 @@ RETURN
              '" at ', name, ' would add ',
              CAST(CAST(round(get(array_sort(filter(evidence_checks, c -> c.status <> 'found'), (a, b) -> b.max_points - a.max_points), 0).max_points * 50.0 / 60) AS INT) AS STRING),
              ' Quality points; the gap to #1 is ', CAST(top_q - quality_score AS STRING), ' points',
-             CASE WHEN quality_score + CAST(round(get(array_sort(filter(evidence_checks, c -> c.status <> 'found'), (a, b) -> b.max_points - a.max_points), 0).max_points * 50.0 / 60) AS INT) >= top_q - 10
+             CASE WHEN conf_group > top_conf_group
+                  THEN concat(', but it is ', confidence_label, ' confidence while #1 is ', top_conf,
+                              ', so more points alone would not move it to first.')
+                  WHEN quality_score + CAST(round(get(array_sort(filter(evidence_checks, c -> c.status <> 'found'), (a, b) -> b.max_points - a.max_points), 0).max_points * 50.0 / 60) AS INT) >= top_q - 10
                   THEN ', so it would then be within 10 points and, being closer, would rank first.'
                   ELSE ', so that alone would not be enough (a closer facility wins only within 10 points).' END) END,
     (SELECT search_note FROM notes),
@@ -471,8 +523,10 @@ RETURN
              ' (', CAST(round((SELECT f.km FROM er), 1) AS STRING), ' km',
              CASE WHEN (SELECT f.phone FROM er) IS NOT NULL THEN concat(', ', (SELECT f.phone FROM er)) ELSE '' END, ').') END,
     concat('Among facilities reachable within ', CAST(budget AS STRING), ' minutes (', urgency, ': ', rationale,
-           '), we rank by Quality. If two are within 10 Quality points, the closer one wins (at each rank we take the best ',
-           'remaining Quality, or the closest facility within 10 points of it). ',
+           '), High-confidence options come first, then Medium, then Low or Probable: we never rank a less certain ',
+           'facility above a more certain one. Within each confidence group we rank by Quality, and if two are within ',
+           '10 Quality points the closer one wins (at each rank we take the best remaining Quality, or the closest ',
+           'facility within 10 points of it). ',
            'Facilities beyond the budget come after all reachable ones, labelled "farther option". ',
            'Weak (unconfirmed) evidence always comes last. If nothing qualifies within the search radius, it is doubled (up to 300 km).'),
     'Travel time is estimated as straight-line km × 1.4 (road detour) ÷ 35 km/h average speed.',
@@ -496,15 +550,27 @@ RETURN
       ELSE concat('Ask whether ', svc_label, ' is available on the day you plan to go, and the cost.')
     END,
     verifications, verified_service, q_verified,
-    size(scenario_winners), CAST(stable_n AS INT),
+    CASE WHEN rnk = 1 THEN double_checks END,
+    CASE WHEN rnk = 1 THEN CASE WHEN size(data_lost) = 0 THEN 'Solid' ELSE 'Shaky' END END,
     CASE
-      WHEN rnk = 1 THEN concat('Stays #1 in ', CAST(stable_n AS STRING), ' of ', CAST(size(scenario_winners) AS STRING), ' "what if" scenarios',
-        CASE WHEN size(lost_in) > 0 THEN concat('; #1 would change if: ',
-          array_join(transform(lost_in, x -> concat(lower(x.scenario), ' (', coalesce(element_at(names, x.winner), 'no facility qualifies'), ')')), '; '))
-        ELSE '' END, '.')
-      WHEN stable_n > 0 THEN concat('Would be #1 if: ', array_join(transform(won_in, x -> lower(x.scenario)), '; '), '.')
+      WHEN rnk <> 1 THEN NULL
+      WHEN size(data_lost) = 0 THEN 'Solid pick: stays #1 even if we doubt the data.'
+      ELSE concat('Shaky pick: ',
+        CASE get(data_lost, 0).key
+          WHEN 'strong' THEN 'if we only count detailed evidence'
+          WHEN 'multi' THEN CASE WHEN coalesce(n_source_domains, 0) <= 1 THEN 'if its one website is wrong'
+                                 ELSE 'if we ignore facilities found on just one website' END
+          ELSE CASE WHEN alt_lat IS NOT NULL THEN 'if it is really at the other address on record'
+                    ELSE 'if fuzzy addresses are really at their other location' END END,
+        ', ', element_at(names, get(data_lost, 0).winner), ' is #1',
+        CASE WHEN size(data_lost) > 1 THEN concat(' (', CAST(size(data_lost) AS STRING), ' of 3 double-checks change #1)') ELSE '' END,
+        '.')
     END,
-    scenario_winners
+    CASE WHEN rnk <> 1 AND size(situation_won) > 0 THEN
+      concat('Would be your best option if ',
+             array_join(transform(situation_won, x -> concat(lower(substr(x.label, 1, 1)), substr(x.label, 2))), ', or if '), '.')
+    END,
+    confidence_label
   FROM enriched
   WHERE rnk <= top_n OR is_near_alt OR is_better_farther
   ORDER BY rnk;
