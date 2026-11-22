@@ -24,3 +24,11 @@ class Adapter(ABC):
     @abstractmethod
     def recommend(self, q: Query) -> RecommendResponse:
         """Top-N recommendations with evidence."""
+
+    def prefetch(self) -> None:
+        """Optional: load reference data (services, places) ahead of the first request."""
+        self.services()
+        self.places()
+
+    def invalidate_results(self) -> None:
+        """Optional: drop cached search results (called after a reviewer verification)."""

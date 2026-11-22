@@ -38,6 +38,21 @@ For hot reload on the UI, also run `npm run dev` and open http://localhost:5173 
 databricks bundle deploy --target dev; databricks bundle run care_finder --target dev
 ```
 
+Before a deploy, refresh the shipped service/place snapshot so a freshly started app answers the page-load calls
+without waiting for the warehouse (needs a working warehouse; skip it and the app just loads them from SQL):
+
+```powershell
+$env:DATABRICKS_CONFIG_PROFILE = "YOUR_PROFILE"; .venv\Scripts\python scripts\snapshot_reference.py
+```
+
+## Speed settings (env vars, all optional)
+
+- `RESULT_CACHE_TTL` (default `600`): seconds an identical search is answered from memory. Verifications clear it.
+  `0` turns it off.
+- `WARMUP` (default `1`): start the SQL warehouse in the background at app start and on page load (`POST /api/warmup`),
+  at most once per `WARMUP_COOLDOWN` seconds (default `120`). There is deliberately no periodic keep-alive, which would
+  burn the Free Edition compute quota. `WARMUP=0` turns it off.
+
 After the first deploy, give the app's service principal read access to the cleaned data (once, in the SQL editor;
 the principal's application id is on the app's page under **Authorization**):
 
