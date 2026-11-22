@@ -1,6 +1,6 @@
 # Motion notes
 
-Where each motion item (M1 to M20 in `uiux-improvement-plan.md`) lives, and why some do not apply in full.
+Where each motion item (M1 to M20) lives, and why some do not apply in full.
 Every duration and curve comes from `frontend/src/styles/tokens.css`, mirrored in `frontend/src/motion/presets.js`.
 With reduced motion on, the CSS tokens drop to 0.01ms and `usePresets()` returns `{ duration: 0 }`, so every change is instant.
 

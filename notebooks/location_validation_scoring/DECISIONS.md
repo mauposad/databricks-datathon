@@ -51,7 +51,7 @@ update it in `_scoring_common.py` / `02_score_locations.py`, edit this file and 
 
 ## Integration decisions (2026-11-21)
 
-Recorded in `location_scoring_integration_plan.md`. In short:
+In short:
 
 * Publish one score per `cluster_id` to `workspace.datathon.silver_location_validation`.
 * Silver reads the repaired rows, and unscored facilities are flagged, not dropped.
