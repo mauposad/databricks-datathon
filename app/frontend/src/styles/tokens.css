@@ -1,0 +1,125 @@
+/* Design tokens. Every colour, size, radius and duration in the UI comes from here.
+   Colours stay as plain hex so scripts/check-contrast.mjs can read them. */
+:root {
+  /* ---- Colour: surfaces and text ---- */
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --subtle: #f1f3f6;          /* inner surfaces: stat blocks, breakdown, bubbles */
+  --text: #16191f;
+  --muted: #555d6b;           /* raised from #667085 so 12px text passes 4.5:1 */
+  --line: #e3e6eb;            /* dividers: decorative, not a control edge */
+  --control: #838c9b;         /* control borders and icons: 3:1 on panel */
+
+  /* ---- Colour: the one accent ----
+     Used for the primary action, the focus ring, the selected state and links in running text. Nothing else. */
+  --accent: #1d5bd8;
+  --accent-fill: #1d5bd8;
+  --on-accent: #ffffff;
+  --accent-soft: #e9f0fe;
+  --mark: #fff1a8;
+
+  /* ---- Colour: status (confidence badge, status icons, score bar only) ---- */
+  --high: #0b7a40;  --high-bg: #e3f6ec;
+  --med: #8a5200;   --med-bg: #fff3dc;
+  --low: #b42318;   --low-bg: #fde8e7;
+  --none: #4d5563;  --none-bg: #eceff3;
+  --warn: #8a5200;  --warn-bg: #fff4e5;
+
+  /* ---- Colour: score bar segments ---- */
+  --seg-trust: #1d5bd8; --seg-distance: #94b4f5;
+  --seg-evidence: #0f766e; --seg-sources: #14b8a6; --seg-scale: #7dd3c0; --seg-location: #c7ece4; --seg-penalty: #dc2626;
+
+  /* ---- Colour: map (read by ResultsMap.jsx with getComputedStyle) ---- */
+  --map-pin: #2b313c;
+  --map-pin-active: #1d5bd8;
+  --map-pin-text: #ffffff;
+  --map-pin-ring: #ffffff;
+  --map-origin: #16191f;
+  --map-radius: #2b313c;   /* the search circle is not a selection, so it stays neutral */
+
+  /* ---- Space ---- */
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px; --s-6: 32px; --s-7: 48px;
+
+  /* ---- Type: six steps only (size / line height) ---- */
+  --fs-1: 12px; --lh-1: 16px;
+  --fs-2: 13px; --lh-2: 18px;
+  --fs-3: 14px; --lh-3: 20px;
+  --fs-4: 16px; --lh-4: 24px;
+  --fs-5: 20px; --lh-5: 28px;
+  --fs-6: 28px; --lh-6: 34px;
+  --fw-regular: 400;
+  --fw-strong: 600;
+
+  /* ---- Radius ----
+     Inner radius rule: a rounded box inside a rounded box uses
+     max(4px, outer radius - padding). See --r-inner uses in styles.css. */
+  --r-sm: 6px; --r-md: 10px; --r-lg: 16px; --r-pill: 999px;
+
+  /* ---- Elevation: none by default; popovers only ---- */
+  --shadow-pop: 0 8px 24px rgba(16, 24, 40, .12), 0 2px 6px rgba(16, 24, 40, .08);
+
+  /* ---- Motion (mirrored in src/motion/presets.js) ---- */
+  --ease-out:    cubic-bezier(0.23, 1, 0.32, 1);   /* entrances, press release */
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);   /* moves, layout */
+  --ease-in:     cubic-bezier(0.64, 0, 0.78, 0);   /* exits only if needed */
+
+  --dur-press:   100ms;
+  --dur-release: 160ms;
+  --dur-fast:    150ms;   /* icon swap, tooltip */
+  --dur-pop:     160ms;   /* popovers */
+  --dur-list:    180ms;   /* select and place list */
+  --dur-enter:   220ms;   /* cards, details (160 to 250) */
+  --dur-move:    280ms;   /* layout moves, shared elements */
+  --dur-exit:    calc(var(--dur-enter) * 0.8);   /* 176ms: 20% shorter */
+  --dur-pop-exit: calc(var(--dur-pop) * 0.8);
+  --dur-list-exit: calc(var(--dur-list) * 0.8);
+  --dur-reveal:  400ms;   /* score bar mask reveal */
+  --stagger:     30ms;    /* max total 150ms */
+
+  --press-scale: 0.97;
+  --pop-scale:   0.95;
+  --stretch:     1.12;    /* moving knobs */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --subtle: #1d212a;
+    --text: #e7e9ee;
+    --muted: #a3acbb;
+    --line: #2a2f3a;
+    --control: #6b7486;
+
+    --accent: #7aa5ff;
+    --accent-fill: #2f63d8;
+    --on-accent: #ffffff;
+    --accent-soft: #1b2744;
+    --mark: #5c4d00;
+
+    --high: #4ade80;  --high-bg: #12301f;
+    --med: #fbbf24;   --med-bg: #3a2c08;
+    --low: #fb8a8a;   --low-bg: #3b1414;
+    --none: #b6bfcc;  --none-bg: #262b35;
+    --warn: #fbbf24;  --warn-bg: #3a2a0c;
+
+    --seg-trust: #7aa5ff; --seg-distance: #2f4f8f;
+    --seg-evidence: #2dd4bf; --seg-sources: #14b8a6; --seg-scale: #0f766e; --seg-location: #134e48;
+
+    --map-pin: #e7e9ee;
+    --map-pin-active: #7aa5ff;
+    --map-pin-text: #0f1115;
+    --map-pin-ring: #0f1115;
+    --map-origin: #e7e9ee;
+    --map-radius: #a3acbb;
+
+    --shadow-pop: 0 8px 24px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-press: .01ms; --dur-release: .01ms; --dur-fast: .01ms; --dur-pop: .01ms; --dur-list: .01ms;
+    --dur-enter: .01ms; --dur-move: .01ms; --dur-reveal: .01ms; --stagger: 0ms;
+  }
+}

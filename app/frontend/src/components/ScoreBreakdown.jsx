@@ -19,7 +19,7 @@ function Parts({ parts }) {
                title={`${p.label}: ${p.points}/${p.max}`} />
         ))}
       </div>
-      <ul className="parts">
+      <ul className="parts num">
         {parts.filter((p) => p.max != null).map((p) => (
           <li key={p.key}>
             <span className={`dot ${PART_CLASS[p.key] || ''}`} />
@@ -44,7 +44,7 @@ export default function ScoreBreakdown({ score, confidence, distanceKm, rec }) {
     return (
       <div className="breakdown">
         <div className="formula">
-          <div className="big">{score.match}</div>
+          <div className="big num">{score.match}</div>
           <div className="eq">
             Quality = <b>evidence {evidence}</b>/50 + <b>readiness {readiness}</b>/30 + <b>reliability {reliability}</b>/20
             {penalties < 0 && <> <b>{penalties}</b> penalties</>}
@@ -71,7 +71,7 @@ export default function ScoreBreakdown({ score, confidence, distanceKm, rec }) {
   return (
     <div className="breakdown">
       <div className="formula">
-        <div className="big">{score.match}</div>
+        <div className="big num">{score.match}</div>
         <div className="eq">
           match score = <b>0.6 × trust {score.trust}</b> ({trustPart}) + <b>0.4 × distance {score.distance}</b> ({distPart})
           {distanceKm != null && <span className="muted"> · {distanceKm} km away</span>}

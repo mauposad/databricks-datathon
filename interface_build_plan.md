@@ -14,7 +14,7 @@ Three ways in, one way out:
 |---|---|---|
 | Form | Service dropdown (from `ref_services`) + location box (PIN, city, district or `lat,lon`, with district autocomplete) + radius slider | Always works; no LLM needed |
 | Chat | Free text → LLM extracts `{service, place, max_km}` → same recommend call → LLM writes a short answer **using only the returned rows** | Keyword fallback if the LLM endpoint is down |
-| Voice | Browser Web Speech API: mic → transcript → chat path; 🔊 reads the answer aloud (`speechSynthesis`) | Chrome / Edge / Safari. Not Firefox. Lang `en-IN` |
+| Voice | Browser Web Speech API: mic → transcript → chat path; a speaker button reads the answer aloud (`speechSynthesis`) | Chrome / Edge / Safari. Not Firefox. Lang `en-IN` |
 
 ## Interpretability (what judges should see)
 
@@ -92,7 +92,8 @@ the `SqlFunctionAdapter` only needs a new column mapping, no new code.
 | 4 | Chat endpoint (Llama 3.3 70B parse + grounded summary, keyword fallback) | done, tested via API | Claude session |
 | 5 | Voice in/out (Web Speech API, `en-IN`) | built; needs a real-mic test in Chrome/Edge | |
 | 6 | Deploy as Databricks App + grants | done: https://care-finder-7474656679702587.aws.databricksapps.com | Claude session |
-| 7 | Polish: empty/loading states done; still todo: radius auto-widen when empty, "strong evidence only" filter, demo script | todo | |
+| 7 | Polish: empty/loading states and a "Search up to N km" button when empty done; still todo: "strong evidence only" filter, demo script | todo | |
+| 8 | UI/UX pass (`uiux-improvement-plan.md`): tokens, icons, hero card + rows, real states, motion system | done on branch `feature/ui-polish` | Claude session |
 
 ## Open questions / risks
 

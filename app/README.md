@@ -48,6 +48,26 @@ GRANT USE SCHEMA, SELECT, EXECUTE ON SCHEMA workspace.datathon TO `<app-sp-appli
 GRANT MODIFY ON TABLE workspace.datathon.verifications TO `<app-sp-application-id>`;
 ```
 
+## UI conventions
+
+- **Tokens only.** Colour, space (`--s-1`..`--s-7`), type (six steps, `--fs-1`..`--fs-6`), radius and motion live in
+  `frontend/src/styles/tokens.css`. No hex colours in `.jsx` (the map reads its colours with `getComputedStyle`).
+- **One accent.** Use it only for the primary action, the focus ring, the selected state and links in running text.
+  Status colours (green, amber, red) go only on the confidence badge, status icons and score bars.
+- **Contrast.** Run `node frontend/scripts/check-contrast.mjs` after any colour change. Text must reach 4.5:1 and
+  controls 3:1, in light and dark. Nothing smaller than 12px. Two weights only (400, 600).
+- **Components.** Use `frontend/src/components/ui/` (Button, Badge, Tabs, Select, Combobox, Slider, Switch, Popover,
+  Tooltip, Dialog, Skeleton, Toast) and `Icon.jsx` (lucide, 16 or 20px). No emoji or text glyphs as icons.
+  Never use `prompt` or `alert`.
+- **Motion.** Use the pieces in `frontend/src/motion/` and the tokens. Animate only transform, opacity, filter and
+  clip-path. No springs that rebound. Everything respects `prefers-reduced-motion`. `app/docs/motion-notes.md` says
+  where each rule lives.
+- **Copy.** Plain, short sentences. No em dashes, no exclamation marks.
+- **Interpretability stays.** Score breakdown, quotes, rejected evidence, caveats, sources, "How we score" and the
+  double-checks may move, but must not be removed.
+- **Without a backend:** `VITE_MOCK=1 npm run dev` (also `slow`, `empty`, `fail`) serves made-up data from
+  `frontend/src/fixtures/`. The mock is dev-only and is not in the production build.
+
 ## Adding another model or dataset
 
 Implement `services()` and `recommend(query)` in a new class under `backend/adapters/`, returning the shapes in

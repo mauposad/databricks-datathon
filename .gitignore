@@ -228,3 +228,4 @@ __marimo__/
 # Care Finder app
 node_modules/
 app/static/
+app/frontend/screenshots/

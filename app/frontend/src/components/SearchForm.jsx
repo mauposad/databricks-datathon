@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import Icon from './Icon.jsx'
+import { Button, Combobox, Select, Slider, Switch } from './ui/index.js'
 
 const EXAMPLES = [
   { service: 'dialysis', place: 'Jaipur' },
@@ -6,21 +8,33 @@ const EXAMPLES = [
   { service: 'nicu', place: 'Patna' },
 ]
 
-export default function SearchForm({ services, places, loading, onSearch }) {
+export default function SearchForm({ services, places, servicesLoading, placesLoading, loading, onSearch }) {
   const [service, setService] = useState('')
   const [place, setPlace] = useState('')
   const [maxKm, setMaxKm] = useState(75)
   const [publicOnly, setPublicOnly] = useState(false)
+  const [locating, setLocating] = useState(false)
+  const [placeError, setPlaceError] = useState('')
 
   function submit(e) {
     e?.preventDefault()
+    if (loading) return
     if (service && place.trim()) onSearch({ service, place: place.trim(), max_km: maxKm, top_n: 5, public_only: publicOnly })
   }
 
   function useMyLocation() {
-    navigator.geolocation?.getCurrentPosition(
-      (p) => setPlace(`${p.coords.latitude.toFixed(4)},${p.coords.longitude.toFixed(4)}`),
-      () => alert('Location permission was denied.'),
+    setPlaceError('')
+    if (!navigator.geolocation) { setPlaceError('This browser cannot share your location. Type a PIN code or a city.'); return }
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(
+      (p) => { setLocating(false); setPlace(`${p.coords.latitude.toFixed(4)},${p.coords.longitude.toFixed(4)}`) },
+      (err) => {
+        setLocating(false)
+        setPlaceError(err.code === 1
+          ? 'Location access is blocked. Allow it in the browser, or type a PIN code or a city.'
+          : 'We could not get your location. Type a PIN code or a city.')
+      },
+      { timeout: 15000 },
     )
   }
 
@@ -29,48 +43,47 @@ export default function SearchForm({ services, places, loading, onSearch }) {
   return (
     <form className="search-form" onSubmit={submit}>
       <div className="form-grid">
-      <label>
-        <span>Care needed</span>
-        <select value={service} onChange={(e) => setService(e.target.value)} required>
-          <option value="">Choose a service…</option>
-          {services.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-        </select>
-      </label>
-
-      <label>
-        <span>Your location</span>
-        <div className="row">
-          <input list="places" value={place} onChange={(e) => setPlace(e.target.value)}
-                 placeholder="PIN code, city, village or district" required />
-          <button type="button" className="ghost" onClick={useMyLocation} title="Use my location">📍</button>
+        <div className="form-field">
+          <Select id="sf-service" value={service} onValueChange={setService} label="Care needed"
+                  placeholder="Choose a service" loading={servicesLoading} loadingText="Loading care types" options={services.map((s) => ({ value: s.key, label: s.label }))} />
         </div>
-        <datalist id="places">{places.map((p) => <option key={p} value={p} />)}</datalist>
-      </label>
+
+        <div className="form-field">
+          {/* The placeholder says what goes here; screen readers get the name from aria-label. */}
+          <Combobox value={place} onChange={(v) => { setPlace(v); setPlaceError('') }} options={places} label="Your location"
+                    placeholder="PIN code, city, village or district" onEnter={submit} loading={placesLoading && !places.length}
+                    invalid={!!placeError} describedBy={placeError ? 'sf-place-error' : undefined}
+                    trailing={
+                      <button type="button" className="icon-btn" onClick={useMyLocation} disabled={locating}
+                              aria-label={locating ? 'Finding your location' : 'Use my location'}>
+                        <Icon name={locating ? 'spinner' : 'locate'} className={locating ? 'spin' : ''} />
+                      </button>
+                    } />
+          {placeError && <p id="sf-place-error" className="field-error" role="alert"><Icon name="alert" /><span>{placeError}</span></p>}
+        </div>
       </div>
 
       <div className="form-grid">
-        <label>
-          <span>Search radius: <strong>{maxKm} km</strong></span>
-          <input type="range" min="10" max="300" step="5" value={maxKm} onChange={(e) => setMaxKm(+e.target.value)} />
-        </label>
-
-        <label className="inline-check">
-          <input type="checkbox" checked={publicOnly} onChange={(e) => setPublicOnly(e.target.checked)} />
-          <span>Government facilities only</span>
-        </label>
+        <div className="form-field">
+          <span className="field-label" id="sf-km">Search radius <span className="num value">{maxKm} km</span></span>
+          <Slider value={maxKm} onValueChange={setMaxKm} min={10} max={300} step={5} label="Search radius in km" />
+        </div>
+        <Switch checked={publicOnly} onCheckedChange={setPublicOnly} label="Government facilities only" />
       </div>
 
-      <button className="primary" disabled={loading || !service || !place.trim()}>
-        {loading ? 'Searching…' : 'Find facilities'}
-      </button>
+      {/* Not disabled while loading: a disabled button drops keyboard focus to <body>. submit() ignores repeats. */}
+      <Button type="submit" variant="primary" size="lg" icon="search" loading={loading}
+              disabled={!service || !place.trim()}>
+        Find facilities
+      </Button>
 
       <div className="examples">
-        <span className="muted">Try:</span>
+        <span className="muted">Try</span>
         {EXAMPLES.map((ex) => (
-          <button type="button" key={ex.service + ex.place} className="chip"
+          <Button key={ex.service + ex.place} size="sm" variant="secondary"
                   onClick={() => { setService(ex.service); setPlace(ex.place); onSearch({ ...ex, max_km: maxKm, top_n: 5, public_only: publicOnly }) }}>
             {labelFor(ex.service)} · {ex.place}
-          </button>
+          </Button>
         ))}
       </div>
     </form>

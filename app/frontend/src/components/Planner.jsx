@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as api from '../api.js'
+import { Button, Popover, Select, Skeleton } from './ui/index.js'
 
 const SERVICES = [
   ['emergency_csection', 'Emergency C-section'], ['nicu', 'NICU'], ['dialysis', 'Dialysis'], ['trauma', 'Trauma'],
@@ -16,6 +17,8 @@ const INDICATORS = {
   mri: [['health_insurance_pct', 'Household health insurance %']],
   emergency_24x7: [['health_insurance_pct', 'Household health insurance %']],
 }
+
+const ALL = '__all'  // Radix Select needs a non-empty value for "All states"
 
 export default function Planner() {
   const [service, setService] = useState('emergency_csection')
@@ -35,42 +38,44 @@ export default function Planner() {
 
   const ind = INDICATORS[service] || []
   const budget = rows[0]?.travel_budget_min
+  const label = SERVICES.find(([k]) => k === service)?.[1]
   const gaps = useMemo(() => rows.filter((r) => !r.quality_within_budget).length, [rows])
 
   return (
     <div className="panel planner">
       <div className="planner-head">
-        <div>
-          <h2>District planner</h2>
+        <div className="planner-title">
+          <h2>{loading && !rows.length ? 'Districts with no quality facility in reach'
+            : <><span className="num">{gaps}</span> of <span className="num">{rows.length}</span> districts have no quality facility in reach</>}</h2>
           <p className="muted small">
-            Travel time from each district centre to the nearest <b>quality facility</b> (strong or moderate evidence and
-            Quality ≥ 70) and to the nearest facility with any confirmed or probable evidence, next to NFHS-5 indicators.
-            Travel time = km × 1.4 ÷ 35 km/h. A gap means <b>no facility documented in this dataset</b>, not that none exists.
+            {label} · {budget ? `${budget}-minute travel budget · ` : ''}worst access first.{' '}
+            <Popover label="How this works" trigger={<Button variant="ghost" size="sm" icon="info" className="inline-link">How this works</Button>}>
+              <div className="popover-body">
+                <p>Travel time from each district centre to the nearest <b>quality facility</b> (strong or moderate evidence and
+                  Quality ≥ 70) and to the nearest facility with any confirmed or probable evidence, next to NFHS-5 indicators.</p>
+                <p>Travel time = km × 1.4 ÷ 35 km/h.</p>
+                <p>A gap means <b>no facility documented in this dataset</b>, not that none exists.</p>
+              </div>
+            </Popover>
           </p>
         </div>
         <div className="planner-controls">
-          <select value={service} onChange={(e) => setService(e.target.value)}>
-            {SERVICES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-          </select>
-          <select value={state} onChange={(e) => setState(e.target.value)}>
-            <option value="">All states</option>
-            {allStates.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <Select value={service} onValueChange={setService} label="Service"
+                  options={SERVICES.map(([k, l]) => ({ value: k, label: l }))} />
+          <Select value={state || ALL} onValueChange={(v) => setState(v === ALL ? '' : v)} label="State"
+                  options={[{ value: ALL, label: 'All states' }, ...allStates.map((s) => ({ value: s, label: s }))]} />
         </div>
       </div>
-      {error && <div className="alert error">{error}</div>}
-      {!loading && rows.length > 0 && (
-        <p className="small"><b>{gaps}</b> of {rows.length} districts have no documented quality facility within the
-          {' '}{budget}-minute travel budget for this service. Worst access first.</p>
-      )}
-      {loading ? <div className="skeleton" /> : (
-        <div className="table-wrap">
+      {error && <div className="alert error" role="alert"><span>We could not load the planner. {error}</span></div>}
+      {loading && !rows.length ? <PlannerSkeleton nInd={ind.length} /> : (
+        <div className={`table-wrap ${loading ? 'is-refreshing' : ''}`} aria-busy={loading || undefined}>
+          {loading && <span className="progress-line" aria-hidden />}
           <table className="planner-table">
             <thead>
               <tr>
-                <th>District</th><th>Nearest quality facility</th><th>Travel</th><th>Nearest any evidence</th>
-                <th title="Facilities with confirmed or probable evidence within the travel budget">Reachable</th>
-                {ind.map(([k, l]) => <th key={k}>{l}</th>)}
+                <th>District</th><th>Nearest quality facility</th><th className="n">Travel</th><th>Nearest any evidence</th>
+                <th className="n" title="Facilities with confirmed or probable evidence within the travel budget">Reachable</th>
+                {ind.map(([k, l]) => <th key={k} className="n">{l}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -78,17 +83,36 @@ export default function Planner() {
                 <tr key={r.district + r.state} className={r.quality_within_budget ? '' : 'gap'}>
                   <td><b>{r.district}</b><div className="muted small">{r.state}</div></td>
                   <td>{r.quality_facility || <span className="muted">none documented</span>}
-                    {r.quality_facility && <div className="muted small">Quality {r.quality_facility_quality} · {r.quality_km} km</div>}</td>
-                  <td className={r.quality_within_budget ? 'ok' : 'bad'}>{r.quality_travel_min != null ? `${r.quality_travel_min} min` : '–'}</td>
-                  <td>{r.nearest_facility}<div className="muted small">{r.nearest_tier} · {r.nearest_travel_min} min</div></td>
-                  <td>{r.n_reachable}</td>
-                  {ind.map(([k]) => <td key={k}>{r[k] ?? <span className="muted" title="No NFHS-5 match for this district">–</span>}</td>)}
+                    {r.quality_facility && <div className="muted small num">Quality {r.quality_facility_quality} · {r.quality_km} km</div>}</td>
+                  <td className={`n ${r.quality_within_budget ? 'ok' : 'bad'}`}>{r.quality_travel_min != null ? `${r.quality_travel_min} min` : '–'}</td>
+                  <td>{r.nearest_facility}<div className="muted small num">{r.nearest_tier} · {r.nearest_travel_min} min</div></td>
+                  <td className="n">{r.n_reachable}</td>
+                  {ind.map(([k]) => <td key={k} className="n">{r[k] ?? <span className="muted" title="No NFHS-5 match for this district">–</span>}</td>)}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
+    </div>
+  )
+}
+
+// Same columns as the real table, so nothing jumps when the rows arrive.
+function PlannerSkeleton({ nInd }) {
+  const cols = 5 + nInd
+  return (
+    <div className="table-wrap" role="status" aria-label="Loading districts">
+      <table className="planner-table">
+        <thead><tr>{Array.from({ length: cols }, (_, i) => <th key={i}><Skeleton width={i < 2 || i === 3 ? 120 : 48} height={12} /></th>)}</tr></thead>
+        <tbody>
+          {Array.from({ length: 8 }, (_, r) => (
+            <tr key={r}>{Array.from({ length: cols }, (_, i) => (
+              <td key={i}><Skeleton width={i < 2 || i === 3 ? 140 : 40} height={14} />{i < 2 && <Skeleton width={80} height={12} style={{ marginTop: 8 }} />}</td>
+            ))}</tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
