@@ -49,6 +49,16 @@ update it in `_scoring_common.py` / `02_score_locations.py`, edit this file and 
 | D14 | Table prefix | `bronze_locval_*` in `workspace.default`. This keeps the pipeline separate from `bronze_loclink_*`, which it reads. |
 | D15 | Dependency | The job runs `location_linkage/00_build_location_pairs` first, so `bronze_loclink_offices` always exists and is current. |
 
+## Integration decisions (2026-11-21)
+
+Recorded in `location_scoring_integration_plan.md`. In short:
+
+* Publish one score per `cluster_id` to `workspace.datathon.silver_location_validation`.
+* Silver reads the repaired rows, and unscored facilities are flagged, not dropped.
+* `find_care` and the district planner exclude scores 0–2.
+* The score is display-only: it does not change rank.
+* Scoring revisions wait for v1.1.
+
 ## Repairs of column-shifted rows (T14)
 
 | # | Finding / action |

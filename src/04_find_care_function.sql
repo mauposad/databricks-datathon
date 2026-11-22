@@ -23,6 +23,10 @@
 -- MAGIC trade-off sentence and "what would change this"; a **safety line** for C-section and trauma pointing to the nearest
 -- MAGIC 24×7 emergency facility; and a note when the radius was widened or nothing is within the travel budget.
 -- MAGIC
+-- MAGIC **Location gate:** facilities with `location_validation_score` 0–2 (location could not be verified, see
+-- MAGIC `notebooks/location_validation_scoring/SCORING_CRITERIA.md`) are never returned; `n_excluded_unverified_location`
+-- MAGIC says how many were left out. Facilities without a score are kept and labelled `not_scored`. The score does not
+-- MAGIC change Quality or rank.
 -- MAGIC Requires notebooks 01–03.
 
 -- COMMAND ----------
@@ -222,7 +226,11 @@ RETURNS TABLE (
   verifications ARRAY<STRUCT<check_key: STRING, status: STRING, reviewer: STRING, ts: TIMESTAMP, note: STRING, evidence_url: STRING>>,
   verified_service STRING, q_verified INT,
   scenarios_n INT, stable_first_in INT, stability_note STRING,
-  scenario_winners ARRAY<STRUCT<scenario: STRING, winner: STRING>>)
+  scenario_winners ARRAY<STRUCT<scenario: STRING, winner: STRING>>,
+  -- location validation (notebooks/location_validation_scoring): shown on the card; scores <= 2 are excluded
+  location_validation_status STRING, location_validation_score INT, location_validation_label STRING,
+  location_checks ARRAY<STRUCT<check_key: STRING, check_label: STRING, kind: STRING, status: STRING, why: STRING>>,
+  n_excluded_unverified_location INT)
 COMMENT 'Ranked facilities for a service near a place: quality-first within a travel-time budget, with cited evidence (why), score arithmetic (how), trade-offs and uncertainty'
 RETURN
   WITH loc AS (SELECT * FROM workspace.datathon.resolve_location(place)),
@@ -265,6 +273,9 @@ RETURN
     LEFT JOIN workspace.datathon.verifications_latest va ON va.facility_id = g.facility_id AND va.service_key = g.service_key
     WHERE g.lat IS NOT NULL AND workspace.datathon.haversine_km(loc.lat, loc.lon, g.lat, g.lon) <= greatest(300, max_km)
       AND (operator_filter IS NULL OR g.operator_type = lower(operator_filter))
+      -- location validation gate: a facility whose location could not be verified (score 0-2) is never recommended;
+      -- one with no score yet stays in, labelled 'not_scored'
+      AND coalesce(g.location_validation_score, 3) > 2
   ),
   allc AS (  -- verified checks change the evidence points (scaled to the 50-point Quality evidence part)
     SELECT b.* EXCEPT (evidence_checks, quality_score, q_evidence, checks_found, checks_v),
@@ -297,6 +308,15 @@ RETURN
            CASE WHEN a.qualifies AND a.km * 1.4 / 35 * 60 <= a.budget THEN 1 WHEN a.qualifies THEN 2 ELSE 3 END AS band
     FROM allc a CROSS JOIN radius r
     WHERE a.km <= r.eff_km
+  ),
+  excl AS (  -- facilities with evidence for this service inside the search radius but an unverified location (score 0-2)
+    SELECT CAST(count(DISTINCT g.facility_id) AS INT) AS n
+    FROM workspace.datathon.gold_facility_services g
+    JOIN svc USING (service_key)
+    CROSS JOIN loc CROSS JOIN radius r
+    WHERE g.location_validation_score <= 2 AND g.lat IS NOT NULL
+      AND workspace.datathon.haversine_km(loc.lat, loc.lon, g.lat, g.lon) <= r.eff_km
+      AND (operator_filter IS NULL OR g.operator_type = lower(operator_filter))
   ),
   greedy AS (
     SELECT workspace.datathon.greedy_rank(collect_list(named_struct(
@@ -355,6 +375,7 @@ RETURN
     WHERE e.service_key = 'emergency_24x7' AND e.evidence_tier IN ('strong', 'moderate') AND e.lat IS NOT NULL
       -- only general hospitals with a trustworthy location: not IVF / eye / dental / diagnostic centres
       AND e.facility_type = 'hospital' AND e.location_confidence IN ('high', 'medium') AND e.pen_merged = 0
+      AND coalesce(e.location_validation_score, 3) > 2
       AND NOT lower(e.name) RLIKE 'ivf|fertility|\\beye\\b|netra|nethra|vision|dental|diagnostic|imaging|\\bscan|\\blab|skin|derma|cosmetic|physio|rehab|ayurved|homoeo|homeo|psychiatr|de-?addiction'
       AND workspace.datathon.haversine_km(loc.lat, loc.lon, e.lat, e.lon) <= 100
   ),
@@ -504,7 +525,9 @@ RETURN
         ELSE '' END, '.')
       WHEN stable_n > 0 THEN concat('Would be #1 if: ', array_join(transform(won_in, x -> lower(x.scenario)), '; '), '.')
     END,
-    scenario_winners
+    scenario_winners,
+    location_validation_status, CAST(location_validation_score AS INT), location_validation_label, location_checks,
+    (SELECT n FROM excl)
   FROM enriched
   WHERE rnk <= top_n OR is_near_alt OR is_better_farther
   ORDER BY rnk;

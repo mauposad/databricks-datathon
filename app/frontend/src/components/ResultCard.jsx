@@ -80,6 +80,48 @@ function Checklist({ checks, pattern, verify }) {
   )
 }
 
+// Location validation (notebooks/location_validation_scoring): do the record's pincode, city, district, postal
+// circle, map point and phones agree? Shown for transparency; it does not change the rank.
+const LOC_ICON = { pass: '✓', fail: '✗', missing: '–' }
+const LOC_CLASS = { pass: 'check-found', fail: 'check-contradicted', missing: 'check-unknown' }
+const LOC_LABEL = { verified_all: 'all checks agree', verified_strong: 'strong agreement', verified_partial: 'partial agreement' }
+
+function LocationBadge({ lv }) {
+  if (!lv) return null
+  if (lv.status !== 'scored') {
+    return <span className="loc-badge loc-none" title="This record has no location validation score yet.">Location not validated</span>
+  }
+  const cls = lv.score >= 5 ? 'loc-high' : lv.score >= 4 ? 'loc-med' : 'loc-low'
+  return <span className={`loc-badge ${cls}`} title={`Location validation: ${LOC_LABEL[lv.label] || lv.label}`}>Location {lv.score}/5</span>
+}
+
+function LocationChecks({ lv }) {
+  if (!lv) return null
+  if (lv.status !== 'scored') {
+    return (<>
+      <h5>Location checks</h5>
+      <p className="muted small">Not validated yet: this record has no location validation score.</p>
+    </>)
+  }
+  return (
+    <>
+      <h5>Location checks <span className="muted">({lv.score}/5 · {LOC_LABEL[lv.label] || lv.label} · shown, not used in ranking)</span></h5>
+      <ul className="checklist">
+        {lv.checks.map((c) => (
+          <li key={c.key} className={`check ${LOC_CLASS[c.status] || 'check-unknown'}`}>
+            <span className="icon" aria-label={c.status}>{LOC_ICON[c.status] || '?'}</span>
+            <div>
+              <div>{c.label} {c.kind === 'secondary' && <span className="muted small">supporting check</span>}</div>
+              {c.status === 'fail' && c.why && <div className="muted small">{c.why}</div>}
+              {c.status === 'missing' && <div className="muted small">Not in the record (does not count against it).</div>}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </>
+  )
+}
+
 function hostOf(url) {
   try { return new URL(url).hostname.replace(/^www\./, '') } catch { return url }
 }
@@ -174,6 +216,7 @@ export default function ResultCard({ rec, top, selected, onSelect, serviceKey, o
           <span className={`conf ${CONF_CLASS[rec.confidence.label]}`} title={rec.confidence.rule}>
             {rec.confidence.label} confidence
           </span>
+          <LocationBadge lv={rec.location_validation} />
           {rec.distance_km != null && <span className="dist">{rec.distance_km} km</span>}
         </div>
       </header>
@@ -224,6 +267,8 @@ export default function ResultCard({ rec, top, selected, onSelect, serviceKey, o
           <ScoreBreakdown score={rec.score} confidence={rec.confidence} distanceKm={rec.distance_km} rec={rec} />
 
           {rec.checks?.length > 0 && <Checklist checks={rec.checks} pattern={rec.match_pattern} verify={verify} />}
+
+          <LocationChecks lv={rec.location_validation} />
 
           <h5>Evidence from the facility's record <span className="muted">(verbatim, by column)</span></h5>
           {rec.claims?.length > 0 ? (

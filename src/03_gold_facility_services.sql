@@ -689,12 +689,16 @@ q AS (
     sf.coh_duplicate, coalesce(sf.identity_conflict, false) AS identity_conflict, sf.identity_conflict_reason,
     sf.possible_duplicate_names, sf.other_facilities_named,
     -- the other candidate location when coordinates and PIN disagree (> 25 km): used by find_care's stability check
-    sf.alt_lat, sf.alt_lon
+    sf.alt_lat, sf.alt_lon,
+    -- location validation score per cluster (display + find_care gate only; it does not change Quality)
+    coalesce(sf.location_validation_status, 'not_scored') AS location_validation_status,
+    sf.location_validation_score, sf.location_validation_label, sf.location_checks
   FROM workspace.datathon.gold_facility_services g
   LEFT JOIN sup s USING (facility_id, service_key)
   LEFT JOIN (SELECT s.facility_id, s.record_coherence_score, s.coh_coords_pin, s.coh_city, s.coh_state, s.coh_located_in,
                     s.coh_other_facility, s.coh_duplicate, s.identity_conflict, s.identity_conflict_reason,
                     s.possible_duplicate_names, s.other_facilities_named,
+                    s.location_validation_status, s.location_validation_score, s.location_validation_label, s.location_checks,
                     CASE WHEN s.location_source = 'coordinates' AND s.km_coords_to_pin > 25 THEN pg.lat
                          WHEN s.location_source = 'pin_centroid' THEN s.lat_raw END AS alt_lat,
                     CASE WHEN s.location_source = 'coordinates' AND s.km_coords_to_pin > 25 THEN pg.lon
@@ -707,7 +711,8 @@ SELECT q.* EXCEPT (caveats),
     CASE WHEN size(possible_duplicate_names) > 0 THEN concat('A near-duplicate record is nearby (', array_join(possible_duplicate_names, ', '),
                                                              '); details may be split between the two records.') END,
     CASE WHEN size(other_facilities_named) > 0 THEN concat('The description names another facility: "', get(other_facilities_named, 0), '".') END,
-    CASE WHEN identity_conflict THEN concat('Identity not fully settled (', identity_conflict_reason, '), so confidence is capped at Medium.') END
+    CASE WHEN identity_conflict THEN concat('Identity not fully settled (', identity_conflict_reason, '), so confidence is capped at Medium.') END,
+    CASE WHEN location_validation_status = 'not_scored' THEN 'Location not validated yet: this record has no location validation score.' END
   ))) AS caveats,
   q_facility_type + q_beds + q_support AS q_readiness,
   q_sources + q_location + q_coherence AS q_reliability,

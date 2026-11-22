@@ -6,11 +6,11 @@ fields (score parts, evidence by column, tags, confidence rule).
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, Optional
 
 from .. import sql
-from ..schema import (Check, Claim, Confidence, Evidence, Origin, Query, RecommendResponse, Recommendation, Scenario,
-                      Score, ScorePart, Service)
+from ..schema import (Check, Claim, Confidence, Evidence, LocationCheck, LocationValidation, Origin, Query,
+                      RecommendResponse, Recommendation, Scenario, Score, ScorePart, Service)
 from .base import Adapter
 
 CONFIDENCE_RULE = ("High: trust ≥ 70 with strong/moderate evidence · Medium: trust 45–69 · Low: trust < 45 · "
@@ -157,7 +157,18 @@ def to_recommendation(r: dict) -> Recommendation:
         identity_conflict=bool(r.get("identity_conflict")), coherence=r.get("record_coherence_score"),
         verified_service=r.get("verified_service"), stability_note=r.get("stability_note"),
         stable_first_in=r.get("stable_first_in"),
+        location_validation=_location_validation(r),
     )
+
+
+def _location_validation(r: dict) -> Optional[LocationValidation]:
+    status = r.get("location_validation_status")
+    if not status:  # find_care from before the location gate
+        return None
+    return LocationValidation(
+        status=status, score=r.get("location_validation_score"), label=r.get("location_validation_label"),
+        checks=[LocationCheck(key=c["check_key"], label=c["check_label"], kind=c.get("kind") or "main",
+                              status=c.get("status"), why=c.get("why")) for c in (r.get("location_checks") or [])])
 
 
 class FindCareAdapter(Adapter):
@@ -202,6 +213,12 @@ class FindCareAdapter(Adapter):
             resp.method = f"{resp.ranking_rule} {QUALITY} {resp.travel_assumption}"
         if resp.search_note:
             resp.notes.append(resp.search_note)
+        resp.n_excluded_unverified_location = first.get("n_excluded_unverified_location") or 0
+        if resp.n_excluded_unverified_location:
+            n = resp.n_excluded_unverified_location
+            resp.notes.append(f"{n} {'facility' if n == 1 else 'facilities'} with evidence for this service "
+                              f"{'was' if n == 1 else 'were'} left out because {'its' if n == 1 else 'their'} location "
+                              "could not be verified (location score 0-2 of 5).")
         if any(r.confidence.label == "Unconfirmed" for r in resp.results):
             resp.notes.append("Some results only have weak evidence and are shown to fill the list; treat them as unconfirmed.")
         return resp

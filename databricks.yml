@@ -5,6 +5,11 @@ include:
   - resources/*.yml
 
 variables:
+  care_finder_app_name:
+    description: >-
+      Databricks App name. Apps are not prefixed in development mode, so a second collaborator deploying with the
+      default would collide with the live app: deploy your own copy with --var care_finder_app_name=care-finder-<you>
+    default: care-finder
   warehouse_id:
     description: SQL warehouse that runs the SQL notebooks
     lookup:

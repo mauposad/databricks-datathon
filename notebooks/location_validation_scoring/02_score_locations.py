@@ -352,7 +352,7 @@ for i, r in fac.iterrows():
         n_loc += located; n_match += match
         n_land += c["kind"] == "landline"; n_mob += c["kind"] == "mobile"
         n_model += c["circle_source"] == "model"
-        phone_rows.append(dict(unique_id=r.unique_id, fac_row_id=r.fac_row_id, phone_raw=n, e164=c["e164"],
+        phone_rows.append(dict(unique_id=r.unique_id, cluster_id=r.cluster_id, fac_row_id=r.fac_row_id, phone_raw=n, e164=c["e164"],
                                phone_type=c["phone_type"], phone_kind=c["kind"], landline_area=c["area_desc"],
                                mobile_series=c["mobile_series"], mobile_circle=c["mobile_circle"],
                                circle_source=c["circle_source"], circle_probability=c["circle_probability"],
@@ -420,7 +420,7 @@ display(rates)
 
 # COMMAND ----------
 
-KEEP = ["unique_id", "fac_row_id", "repair_status", "name", "address_city", "address_stateOrRegion",
+KEEP = ["unique_id", "cluster_id", "fac_row_id", "repair_status", "name", "address_city", "address_stateOrRegion",
         "address_zipOrPostcode", "latitude", "longitude",
         "state_resolved", "city_match_kind", "city_matched_names", "pincode_used", "pincode_source", "point_status",
         "chk_pincode", "why_pincode", "chk_city_state", "why_city_state",

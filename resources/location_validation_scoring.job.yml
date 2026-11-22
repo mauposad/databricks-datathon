@@ -41,3 +41,9 @@ resources:
             - task_key: repair_facility_rows
           notebook_task:
             notebook_path: ../notebooks/location_validation_scoring/02_score_locations.py
+        - task_key: publish_location_scores
+          description: One score per cluster_id + repaired rows -> workspace.datathon (silver_location_validation, bronze_locval_facilities_repaired)
+          depends_on:
+            - task_key: score_locations
+          notebook_task:
+            notebook_path: ../notebooks/location_validation_scoring/03_publish_location_scores.py

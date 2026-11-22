@@ -130,6 +130,11 @@ input[type=range] { accent-color: var(--accent); }
 .conf-low { background: var(--low-bg); color: var(--low); }
 .conf-none { background: var(--none-bg); color: var(--none); }
 .dist { font-size: 12px; color: var(--muted); font-weight: 600; }
+.loc-badge { font-size: 11px; font-weight: 600; border-radius: 999px; padding: 2px 8px; white-space: nowrap; border: 1px solid currentColor; }
+.loc-high { color: var(--high); }
+.loc-med { color: var(--med); }
+.loc-low { color: var(--low); }
+.loc-none { color: var(--none); }
 .tags { display: flex; flex-wrap: wrap; gap: 5px; margin: 10px 0 8px; }
 .tag { font-size: 11px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1px 7px; }
 .tag.warn { background: var(--warn-bg); color: var(--warn); border-color: transparent; }

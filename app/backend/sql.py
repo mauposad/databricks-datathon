@@ -58,4 +58,4 @@ def query(statement: str, params: dict[str, Any] | None = None) -> list[dict[str
 
 def fq(name: str) -> str:
     """Fully qualified object name in the configured catalog/schema."""
-    return f"{config.CATALOG}.{config.SCHEMA}.{name}"
+    return f"{config.CATALOG}.{config.SCHEMA}.{config.OBJECT_PREFIX}{name}"

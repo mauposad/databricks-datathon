@@ -48,6 +48,23 @@ class Claim(BaseModel):
     claim_type: str               # direct / list_dump / hedged / third_party / negated
 
 
+class LocationCheck(BaseModel):
+    """One of the six location validation checks (notebooks/location_validation_scoring/SCORING_CRITERIA.md)."""
+    key: str                      # pincode / city_state / district_region / circle_division / coordinates / phone
+    label: str
+    kind: str                     # main / secondary
+    status: Optional[str] = None  # pass / fail / missing
+    why: Optional[str] = None     # plain-language reason when it failed
+
+
+class LocationValidation(BaseModel):
+    """How consistent the facility's location claims are with each other. Shown on the card; does not change rank."""
+    status: str                   # scored / not_scored
+    score: Optional[int] = None   # 0-5; pass >= 3 (facilities scoring 0-2 are never returned)
+    label: Optional[str] = None   # verified_all / verified_strong / verified_partial
+    checks: list[LocationCheck] = []
+
+
 class ScorePart(BaseModel):
     key: str
     label: str
@@ -118,6 +135,7 @@ class Recommendation(BaseModel):
     verified_service: Optional[str] = None      # latest reviewer decision on the service itself: confirmed / rejected
     stability_note: Optional[str] = None        # "Stays #1 in k of n what-if scenarios ..."
     stable_first_in: Optional[int] = None
+    location_validation: Optional[LocationValidation] = None
 
 
 class Origin(BaseModel):
@@ -147,6 +165,7 @@ class RecommendResponse(BaseModel):
     travel_assumption: str = ""
     search_note: Optional[str] = None   # e.g. "search widened to 150 km"
     safety_note: Optional[str] = None   # e.g. "if unstable, go to the nearest 24x7 emergency facility first"
+    n_excluded_unverified_location: int = 0   # facilities left out because their location could not be verified
 
 
 class VerifyRequest(BaseModel):

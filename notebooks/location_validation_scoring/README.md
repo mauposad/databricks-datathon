@@ -18,7 +18,8 @@ databricks bundle run location_validation_scoring --target dev
 ```
 
 The job (`resources/location_validation_scoring.job.yml`) runs
-`../location_linkage/00_build_location_pairs` and notebooks `00` and `01` in parallel, then runs `02`.
+`../location_linkage/00_build_location_pairs` and notebooks `00` and `01` in parallel, then `02`, then `03` (publish).
+`build_facility_tables` runs this whole job as its first task, before silver.
 
 You can also run the notebooks interactively in this order: `location_linkage/00` (if `bronze_loclink_offices`
 is stale), then `00` → `01` → `02`.
@@ -28,15 +29,23 @@ is stale), then `00` → `01` → `02`.
 | `00_ingest_phone_reference` | `bronze_locval_mobile_prefix` (each mobile series 6000–9999 → telecom circle, from the CSV or a model). Also writes the CSVs and models into the `locval_ref` volume. |
 | `01_repair_facility_rows` | `bronze_locval_facilities_repaired` (every source row; CSV-split rows merged back), `bronze_locval_repair_log` |
 | `02_score_locations` | `bronze_locval_scores` (one row per facility), `bronze_locval_phone_numbers` (facility × number), `bronze_locval_score_summary` |
+| `03_publish_location_scores` | Into `workspace.datathon` for the app: `silver_location_validation` (**one row per `facility_id` = `cluster_id`**, using the row silver keeps for the cluster) and `bronze_locval_facilities_repaired` (read by `src/02_silver_facilities.sql`) |
 
 Shared code is in `_scoring_common.py`, loaded with `%run ./_scoring_common`. That file itself runs
 `../location_linkage/_common`, so both pipelines use the same state spellings, text normalisation and output
 widgets (`out_catalog` / `out_schema`, default `workspace.default`).
 
-## Downstream use
+## Downstream use (Care Finder)
+
+* `src/02_silver_facilities.sql` reads the repaired rows (the 30 split facilities now enter silver) and joins
+  `silver_location_validation`. A facility with no score gets `location_validation_status = 'not_scored'` and the
+  quality flag `location_not_validated`; a score of 0-2 adds `location_unverified`.
+* `find_care` and the district planner leave out facilities scoring 0-2 and report how many in
+  `n_excluded_unverified_location`. The score is shown on the card (badge + six checks); it does not change rank.
+* Plan and decisions: [`../../location_scoring_integration_plan.md`](../../location_scoring_integration_plan.md).
 
 ```sql
-SELECT * FROM workspace.default.bronze_locval_scores WHERE location_validation_passed
+SELECT * FROM workspace.datathon.silver_location_validation WHERE location_validation_passed
 ```
 
 ## External data and licences
