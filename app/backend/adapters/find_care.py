@@ -5,10 +5,10 @@ fields (score parts, evidence by column, tags, confidence rule).
 """
 from __future__ import annotations
 
-import time
-from typing import Any, Optional
+from typing import Optional
 
-from .. import sql
+from .. import config, sql
+from ..cache import Refreshing, TTLCache
 from ..schema import (Check, Claim, Confidence, DoubleCheck, Evidence, LocationCheck, LocationValidation, Origin, Query,
                       RecommendResponse, Recommendation, Score, ScorePart, Service)
 from .base import Adapter
@@ -33,16 +33,10 @@ EVIDENCE_FIELDS = [  # (column in find_care, source column in the raw data, labe
     ("specialties_cited", "specialties", "Listed specialty"),
 ]
 
-_CACHE: dict[str, tuple[float, Any]] = {}
-
-
-def _cached(key: str, ttl: float, fn):
-    hit = _CACHE.get(key)
-    if hit and time.time() - hit[0] < ttl:
-        return hit[1]
-    val = fn()
-    _CACHE[key] = (time.time(), val)
-    return val
+def _result_key(q: Query) -> tuple:
+    """Searches that only differ in case or spacing share a cache entry."""
+    norm = lambda s: " ".join(s.split()).lower()
+    return (norm(q.service), norm(q.place), round(float(q.max_km), 1), int(q.top_n), bool(q.public_only))
 
 
 def _bool(v) -> bool | None:
@@ -184,24 +178,53 @@ def _location_validation(r: dict) -> Optional[LocationValidation]:
                               status=c.get("status"), why=c.get("why")) for c in (r.get("location_checks") or [])])
 
 
+def _load_services() -> list[Service]:
+    rows = sql.query(f"SELECT service_key, service_label, aliases FROM {sql.fq('ref_services')} ORDER BY service_label")
+    return [Service(key=r["service_key"], label=r["service_label"], aliases=r["aliases"] or []) for r in rows]
+
+
+def _load_places() -> list[str]:
+    rows = sql.query(f"""
+        SELECT DISTINCT initcap(lower(district)) AS d FROM {sql.fq('silver_pincode_geo')}
+        WHERE district IS NOT NULL AND lat IS NOT NULL ORDER BY d""")
+    return [r["d"] for r in rows]
+
+
 class FindCareAdapter(Adapter):
     name = "find_care"
 
+    def __init__(self):
+        self._services = Refreshing("services", _load_services, ttl=3600,
+                                    parse=lambda rows: [Service(**r) for r in rows])
+        self._places = Refreshing("places", _load_places, ttl=3600)
+        self._results = TTLCache(ttl=config.RESULT_CACHE_TTL, maxsize=256)
+
     def services(self) -> list[Service]:
-        def load():
-            rows = sql.query(f"SELECT service_key, service_label, aliases FROM {sql.fq('ref_services')} ORDER BY service_label")
-            return [Service(key=r["service_key"], label=r["service_label"], aliases=r["aliases"] or []) for r in rows]
-        return _cached("services", 3600, load)
+        return self._services.get()
 
     def places(self) -> list[str]:
-        def load():
-            rows = sql.query(f"""
-                SELECT DISTINCT initcap(lower(district)) AS d FROM {sql.fq('silver_pincode_geo')}
-                WHERE district IS NOT NULL AND lat IS NOT NULL ORDER BY d""")
-            return [r["d"] for r in rows]
-        return _cached("places", 3600, load)
+        return self._places.get()
+
+    def prefetch(self) -> None:
+        self._services.prefetch()
+        self._places.prefetch()
+
+    def invalidate_results(self) -> None:
+        """A reviewer's Confirm / Reject changes rankings, so cached searches are dropped."""
+        self._results.clear()
 
     def recommend(self, q: Query) -> RecommendResponse:
+        key = _result_key(q)
+        hit = self._results.get(key)
+        if hit is not None:
+            resp = hit.model_copy(deep=True)
+            resp.query = q
+            return resp
+        resp = self._recommend(q)
+        self._results.set(key, resp.model_copy(deep=True))
+        return resp
+
+    def _recommend(self, q: Query) -> RecommendResponse:
         rows = sql.query(f"SELECT * FROM {sql.fq('find_care')}(:service, :place, CAST(:max_km AS DOUBLE), CAST(:top_n AS INT), "
                          f"CAST(:operator AS STRING))",
                          {"service": q.service, "place": q.place, "max_km": q.max_km, "top_n": q.top_n,

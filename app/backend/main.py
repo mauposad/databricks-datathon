@@ -2,26 +2,40 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-
 import re
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import chat, config, sql
+from . import chat, config, sql, warmup
 from .adapters import get_adapter
 from .schema import ChatRequest, ChatResponse, Query, RecommendResponse, Service, VerifyRequest
 
 logging.basicConfig(level=logging.INFO)
-app = FastAPI(title="Care Finder")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    warmup.trigger("app start")  # background thread; startup does not wait for the warehouse
+    yield
+
+
+app = FastAPI(title="Care Finder", lifespan=lifespan)
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
 
 @app.get("/api/health")
 def health():
     return {"ok": True, "adapter": config.ADAPTER, "llm": config.LLM_ENDPOINT}
+
+
+@app.post("/api/warmup")
+def warmup_endpoint():
+    """Called by the page on load: starts the warehouse in the background (rate limited), returns at once."""
+    return {"started": warmup.trigger("page load")}
 
 
 @app.get("/api/services", response_model=list[Service])
@@ -63,6 +77,7 @@ def verify(v: VerifyRequest, request: Request):
                   VALUES (:facility_id, :service_key, :check_key, :status, :reviewer, current_timestamp(), :note, :evidence_url)""",
               {"facility_id": v.facility_id[:64], "service_key": v.service_key, "check_key": v.check_key, "status": v.status,
                "reviewer": reviewer[:200], "note": (v.note or "")[:500] or None, "evidence_url": (v.evidence_url or "")[:500] or None})
+    get_adapter().invalidate_results()  # the overlay changes rankings; the page re-runs the search next
     return {"ok": True, "reviewer": reviewer}
 
 

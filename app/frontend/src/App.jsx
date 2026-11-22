@@ -72,6 +72,7 @@ export default function App() {
       .finally(() => setServicesLoading(false))
   }
   useEffect(() => {
+    api.warmup()
     loadServices()
     api.getPlaces().then(setPlaces).catch(() => {}).finally(() => setPlacesLoading(false))
   }, [])
