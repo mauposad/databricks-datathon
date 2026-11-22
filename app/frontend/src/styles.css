@@ -323,6 +323,8 @@ input.field::placeholder, .field input::placeholder { color: var(--muted); }
 .row-head:hover { background: var(--subtle); }
 .row-title { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-2); }
 .row-title h3 { font-size: var(--fs-3); line-height: var(--lh-3); overflow-wrap: anywhere; }
+.row-caution { display: inline-flex; color: var(--warn); }
+.row-caution.bad { color: var(--low); }
 .row-travel { flex: none; font-weight: var(--fw-strong); font-size: var(--fs-3); }
 .row-actions { display: inline-flex; gap: var(--s-1); align-items: center; flex: none; }
 .btn.icon-only { width: 40px; min-height: 40px; padding: 0; }
@@ -361,7 +363,8 @@ details[open] > summary .chev { transform: rotate(90deg); }
 }
 @media (hover: hover) {
   .check-title .verify { opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
-  .check:hover .check-title .verify, .check-title .verify:focus-within { opacity: 1; }
+  .check:hover .check-title .verify, .check-title .verify:focus-within,
+  .check-title .verify:has([data-state=open]) { opacity: 1; }
 }
 .quote { font-size: var(--fs-2); line-height: var(--lh-2); color: var(--muted); }
 .quote q, .evidence q { quotes: "\201C" "\201D"; color: var(--text); }

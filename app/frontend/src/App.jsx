@@ -61,6 +61,7 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)        // { text, detail, retry }
   const [selected, setSelected] = useState(null)  // facility id
+  const [expandSignal, setExpandSignal] = useState(null)  // { id, n }: open a row when its map pin is clicked
   const [mapOpen, setMapOpen] = useState(true)    // narrow screens only: the map is a collapsible panel
   const p = usePresets()
 
@@ -195,7 +196,7 @@ export default function App() {
                     {results.slice(1).map((r, i) => (
                       <StaggerItem key={r.id} index={i + 1} layout="position" transition={p.move}>
                         <ResultRow rec={r} top={results[0]} selected={selected === r.id}
-                                   onSelect={() => setSelected(r.id)} verify={verifyFor(r)} />
+                                   onSelect={() => setSelected(r.id)} verify={verifyFor(r)} expandSignal={expandSignal} />
                       </StaggerItem>
                     ))}
                   </div>
@@ -219,7 +220,8 @@ export default function App() {
         </section>
 
         <section id="map-panel" className={`right ${mapOpen ? '' : 'collapsed'}`} aria-label="Map">
-          <ResultsMap result={result} selected={selected} onSelect={setSelected}
+          <ResultsMap result={result} selected={selected}
+                      onSelect={(id) => { setSelected(id); setExpandSignal((s) => ({ id, n: (s?.n || 0) + 1 })) }}
                       examples={EXAMPLE_PINS.map((e) => ({ ...e, onPick: () => runSearch(e.q) }))} />
         </section>
       </main>

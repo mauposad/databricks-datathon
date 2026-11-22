@@ -22,6 +22,7 @@ const plannerRows = (service) => DISTRICTS.map((d, i) => ({
 export async function handle(path, opts, mode) {
   await wait(mode === 'slow' ? 4000 : 700)
   const body = opts.body ? JSON.parse(opts.body) : {}
+  window.__mockCalls = [...(window.__mockCalls || []), { path, body }]  // read by UI regression scripts
   if (path === '/api/services') return SAMPLE_SERVICES
   if (path === '/api/places') return SAMPLE_PLACES
   if (path.startsWith('/api/planner')) {

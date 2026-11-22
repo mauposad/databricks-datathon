@@ -6,9 +6,11 @@ import Icon from '../Icon.jsx'
 const LIMIT = 50
 
 // Free-text input with suggestions. The user can type any value (a PIN code, a "lat,lon"), or pick one.
-// Enter picks the highlighted suggestion; with no list open it submits the form.
+// Enter submits the form, as the old <datalist> field did. It picks a suggestion only after the user moved to one
+// with the arrow keys (cmdk highlights the first item by itself, which would otherwise swallow Enter).
 export default function Combobox({ value, onChange, options, placeholder, label, loading, trailing, onEnter, invalid, describedBy }) {
   const [open, setOpen] = useState(false)
+  const [navigated, setNavigated] = useState(false)
   const matches = useMemo(() => {
     const q = value.trim().toLowerCase()
     if (!q) return []
@@ -25,7 +27,8 @@ export default function Combobox({ value, onChange, options, placeholder, label,
   const show = open && matches.length > 0
 
   function onKeyDown(e) {
-    if (e.key === 'Enter' && !show) { e.preventDefault(); onEnter?.() }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') setNavigated(true)
+    if (e.key === 'Enter' && (!show || !navigated)) { e.preventDefault(); setOpen(false); onEnter?.() }
     if (e.key === 'Escape' && show) { e.preventDefault(); setOpen(false) }
   }
 
@@ -36,8 +39,8 @@ export default function Combobox({ value, onChange, options, placeholder, label,
           <div className={`field field-group ${invalid ? 'is-invalid' : ''}`}>
             <Command.Input value={value} placeholder={placeholder} aria-label={label}
                            aria-invalid={invalid || undefined} aria-describedby={describedBy}
-                           onValueChange={(v) => { onChange(v); setOpen(true) }}
-                           onFocus={() => setOpen(true)} onBlur={() => setOpen(false)} />
+                           onValueChange={(v) => { onChange(v); setOpen(true); setNavigated(false) }}
+                           onFocus={() => setOpen(true)} onBlur={() => { setOpen(false); setNavigated(false) }} />
             {loading && <span className="field-status" aria-label="Loading places"><Icon name="spinner" className="spin" /></span>}
             {trailing}
           </div>
