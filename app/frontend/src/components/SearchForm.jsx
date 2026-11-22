@@ -10,10 +10,11 @@ export default function SearchForm({ services, places, loading, onSearch }) {
   const [service, setService] = useState('')
   const [place, setPlace] = useState('')
   const [maxKm, setMaxKm] = useState(75)
+  const [publicOnly, setPublicOnly] = useState(false)
 
   function submit(e) {
     e?.preventDefault()
-    if (service && place.trim()) onSearch({ service, place: place.trim(), max_km: maxKm, top_n: 5 })
+    if (service && place.trim()) onSearch({ service, place: place.trim(), max_km: maxKm, top_n: 5, public_only: publicOnly })
   }
 
   function useMyLocation() {
@@ -39,7 +40,7 @@ export default function SearchForm({ services, places, loading, onSearch }) {
         <span>Location</span>
         <div className="row">
           <input list="places" value={place} onChange={(e) => setPlace(e.target.value)}
-                 placeholder="PIN code, city, district, or lat,lon" required />
+                 placeholder="PIN code, city, village, district, or lat,lon" required />
           <button type="button" className="ghost" onClick={useMyLocation} title="Use my location">📍</button>
         </div>
         <datalist id="places">{places.map((p) => <option key={p} value={p} />)}</datalist>
@@ -50,6 +51,11 @@ export default function SearchForm({ services, places, loading, onSearch }) {
         <input type="range" min="10" max="300" step="5" value={maxKm} onChange={(e) => setMaxKm(+e.target.value)} />
       </label>
 
+      <label className="inline-check">
+        <input type="checkbox" checked={publicOnly} onChange={(e) => setPublicOnly(e.target.checked)} />
+        <span>Government (public) facilities only</span>
+      </label>
+
       <button className="primary" disabled={loading || !service || !place.trim()}>
         {loading ? 'Searching…' : 'Find facilities'}
       </button>
@@ -58,7 +64,7 @@ export default function SearchForm({ services, places, loading, onSearch }) {
         <span className="muted">Try:</span>
         {EXAMPLES.map((ex) => (
           <button type="button" key={ex.service + ex.place} className="chip"
-                  onClick={() => { setService(ex.service); setPlace(ex.place); onSearch({ ...ex, max_km: maxKm, top_n: 5 }) }}>
+                  onClick={() => { setService(ex.service); setPlace(ex.place); onSearch({ ...ex, max_km: maxKm, top_n: 5, public_only: publicOnly }) }}>
             {labelFor(ex.service)} · {ex.place}
           </button>
         ))}

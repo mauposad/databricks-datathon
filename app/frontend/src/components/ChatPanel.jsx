@@ -25,7 +25,7 @@ export default function ChatPanel({ onResult, voiceFirst = false }) {
     try {
       const res = await api.chat(msg, history)
       setMessages((m) => [...m, { role: 'assistant', content: res.reply, meta: res.query ? `${res.query.service} · ${res.query.place} · parsed by ${res.parsed_by}` : null }])
-      onResult(res.recommendations)
+      onResult(res.recommendations && { ...res.recommendations, chat: { parsed_by: res.parsed_by, reply_source: res.reply_source } })
       if (autoSpeak) speak(res.reply)
     } catch (e) {
       setMessages((m) => [...m, { role: 'assistant', content: `Sorry, something went wrong: ${e.message}` }])

@@ -14,6 +14,7 @@ class Query(BaseModel):
     place: str = Field(description="PIN code, city, district, or 'lat,lon'")
     max_km: float = 75
     top_n: int = 5
+    public_only: bool = False     # government (public) facilities only
 
 
 class Service(BaseModel):
@@ -26,6 +27,25 @@ class Evidence(BaseModel):
     field: str            # source column, e.g. "procedure"
     label: str            # human label, e.g. "Listed procedure"
     text: str             # verbatim text from the record
+
+
+class Check(BaseModel):
+    """One evidence dimension for a headline service (not a clinical checklist)."""
+    key: str
+    label: str
+    status: str                   # found / unknown / contradicted
+    points: float
+    max_points: float
+    cited_text: Optional[str] = None
+    field: Optional[str] = None   # source column, or "service:<key>" when another service's evidence counts
+    claim_type: Optional[str] = None
+
+
+class Claim(BaseModel):
+    """A verbatim phrase that mentions the service, with how it was judged."""
+    text: str
+    field: str
+    claim_type: str               # direct / list_dump / hedged / third_party / negated
 
 
 class ScorePart(BaseModel):
@@ -41,7 +61,8 @@ class Score(BaseModel):
     distance: float               # 0-100, 100 = at the search point
     trust_weight: float = 0.6
     distance_weight: float = 0.4
-    parts: list[ScorePart] = []   # trust components (positives and penalties)
+    parts: list[ScorePart] = []   # components of `match` (positives and penalties)
+    mode: str = "weighted"        # "weighted" (match = 0.6 trust + 0.4 distance) or "quality_first" (match = Quality)
 
 
 class Confidence(BaseModel):
@@ -79,6 +100,24 @@ class Recommendation(BaseModel):
     sources: list[str] = []
     why: str = ""                       # one-paragraph plain-language reason
     how: str = ""                       # the score arithmetic as text
+    # quality-first ranking (optional; adapters that don't rank this way leave them empty)
+    travel_min: Optional[int] = None            # estimated travel time
+    travel_budget_min: Optional[int] = None     # how long a patient can reasonably travel for this service
+    ranking_band: Optional[str] = None          # reachable / farther option / unconfirmed
+    points_below_best: Optional[int] = None     # Quality points below the best remaining option when ranked
+    support_found: list[str] = []               # supporting services counted in readiness (e.g. ICU, blood bank)
+    is_nearest_alternative: bool = False        # nearest qualifying facility, shown although it is not #1
+    is_better_farther: bool = False             # clearly better, but beyond the travel budget
+    tradeoff_note: Optional[str] = None
+    counterfactual_note: Optional[str] = None   # "what would change this"
+    checks: list[Check] = []                    # evidence checklist (headline services)
+    claims: list[Claim] = []                    # every matched phrase with its claim type
+    call_to_confirm: Optional[str] = None       # one fact worth checking by phone
+    identity_conflict: bool = False
+    coherence: Optional[float] = None           # record coherence score 0-100
+    verified_service: Optional[str] = None      # latest reviewer decision on the service itself: confirmed / rejected
+    stability_note: Optional[str] = None        # "Stays #1 in k of n what-if scenarios ..."
+    stable_first_in: Optional[int] = None
 
 
 class Origin(BaseModel):
@@ -88,15 +127,35 @@ class Origin(BaseModel):
     matched_as: Optional[str] = None
 
 
+class Scenario(BaseModel):
+    scenario: str
+    winner: str
+
+
 class RecommendResponse(BaseModel):
     query: Query
     service_label: Optional[str] = None
+    service_key: Optional[str] = None
+    scenarios: list[Scenario] = []      # who would be #1 under each named what-if scenario
     origin: Origin = Origin()
     results: list[Recommendation] = []
     n_candidates: int = 0
     adapter: str = ""
     method: str = ""                    # how ranking works, for the "How we score" panel
     notes: list[str] = []               # e.g. "place not recognised"
+    ranking_rule: str = ""              # the rule, printed verbatim
+    travel_assumption: str = ""
+    search_note: Optional[str] = None   # e.g. "search widened to 150 km"
+    safety_note: Optional[str] = None   # e.g. "if unstable, go to the nearest 24x7 emergency facility first"
+
+
+class VerifyRequest(BaseModel):
+    facility_id: str
+    service_key: str
+    check_key: str = "service"          # a checklist item, or "service" for the service itself
+    status: str                         # confirmed / rejected
+    note: Optional[str] = None
+    evidence_url: Optional[str] = None
 
 
 class ChatTurn(BaseModel):
@@ -115,3 +174,4 @@ class ChatResponse(BaseModel):
     query: Optional[Query] = None
     recommendations: Optional[RecommendResponse] = None
     parsed_by: str = ""                 # "llm" or "keywords"
+    reply_source: str = ""              # "llm" (passed the grounding check) or "template" (+ why)
