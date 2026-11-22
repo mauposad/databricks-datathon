@@ -58,6 +58,7 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)        // { text, detail, retry }
   const [selected, setSelected] = useState(null)  // facility id
+  const [mapOpen, setMapOpen] = useState(true)    // narrow screens only: the map is a collapsible panel
   const p = usePresets()
 
   function loadServices() {
@@ -110,6 +111,11 @@ export default function App() {
 
       {view === 'planner' ? <main className="planner-layout"><Planner /></main> : (
       <main className="layout">
+        <div className="map-toggle">
+          <Button variant="ghost" size="sm" icon="pin" aria-expanded={mapOpen} aria-controls="map-panel" onClick={() => setMapOpen(!mapOpen)}>
+            {mapOpen ? 'Hide map' : 'Show map'}
+          </Button>
+        </div>
         <section className="left">
           <div className="panel input-panel">
             <Tabs items={MODES} value={mode} onChange={setMode} label="Input mode" id="input" className="input-tabs" />
@@ -208,7 +214,7 @@ export default function App() {
           </AnimatePresence>
         </section>
 
-        <section className="right">
+        <section id="map-panel" className={`right ${mapOpen ? '' : 'collapsed'}`} aria-label="Map">
           <ResultsMap result={result} selected={selected} onSelect={setSelected}
                       examples={EXAMPLE_PINS.map((e) => ({ ...e, onPick: () => runSearch(e.q) }))} />
         </section>

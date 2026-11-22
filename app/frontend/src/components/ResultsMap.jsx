@@ -29,6 +29,17 @@ function FitBounds({ result }) {
   return null
 }
 
+// The map panel can collapse on narrow screens; tell Leaflet when its box changes size.
+function TrackSize() {
+  const map = useMap()
+  useEffect(() => {
+    const ro = new ResizeObserver(() => map.invalidateSize())
+    ro.observe(map.getContainer())
+    return () => ro.disconnect()
+  }, [map])
+  return null
+}
+
 // M7: the camera travels on Leaflet's arc (zoom out, pan, zoom in). Reduced motion jumps straight there.
 function FlyTo({ result, selected }) {
   const map = useMap()
@@ -78,6 +89,7 @@ export default function ResultsMap({ result, selected, onSelect, examples = [] }
             </Popup>
           </Marker>
         ))}
+        <TrackSize />
         <FitBounds result={result} />
         <FlyTo result={result} selected={selected} />
       </MapContainer>

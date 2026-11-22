@@ -108,7 +108,7 @@ function PlannerSkeleton({ nInd }) {
         <tbody>
           {Array.from({ length: 8 }, (_, r) => (
             <tr key={r}>{Array.from({ length: cols }, (_, i) => (
-              <td key={i}><Skeleton width={i < 2 || i === 3 ? 140 : 40} height={14} />{i < 2 && <Skeleton width={80} height={12} style={{ marginTop: 6 }} />}</td>
+              <td key={i}><Skeleton width={i < 2 || i === 3 ? 140 : 40} height={14} />{i < 2 && <Skeleton width={80} height={12} style={{ marginTop: 8 }} />}</td>
             ))}</tr>
           ))}
         </tbody>

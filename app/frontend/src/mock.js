@@ -40,7 +40,7 @@ export async function handle(path, opts, mode) {
   if (path === '/api/recommend') return respond(body)
   if (path === '/api/chat') {
     const q = { service: 'dialysis', place: 'Jaipur', max_km: body.max_km || 75, top_n: 5, public_only: false }
-    return { reply: 'I found 5 dialysis options near Jaipur. The closest strong option is about 8 minutes away.',
+    return { reply: 'I found 5 dialysis options within 75 km of Jaipur. The best one is Example Kidney and Dialysis Centre, about 8 minutes away. Its record names 12 haemodialysis machines and a nephrology department. It stays first under all three double-checks. Before you go, call and ask if they take new patients without a referral. If they cannot help, the next option is a large public hospital about 16 minutes away.',
              query: q, recommendations: respond(q), parsed_by: 'keywords', reply_source: 'template' }
   }
   throw new Error(`mock: no route for ${path}`)

@@ -304,7 +304,7 @@ If the backend cannot run (no Databricks login), add a mock server mode: `VITE_M
 | 2 | Hierarchy and copy | done |
 | 3 | Real states and feedback | done |
 | 4 | Motion system | done |
-| 5 | Responsive and polish gate | todo |
+| 5 | Responsive and polish gate | done |
 
 ---
 

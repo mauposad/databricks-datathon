@@ -18,6 +18,7 @@ export default function SearchForm({ services, places, servicesLoading, placesLo
 
   function submit(e) {
     e?.preventDefault()
+    if (loading) return
     if (service && place.trim()) onSearch({ service, place: place.trim(), max_km: maxKm, top_n: 5, public_only: publicOnly })
   }
 
@@ -70,8 +71,9 @@ export default function SearchForm({ services, places, servicesLoading, placesLo
         <Switch checked={publicOnly} onCheckedChange={setPublicOnly} label="Government facilities only" />
       </div>
 
+      {/* Not disabled while loading: a disabled button drops keyboard focus to <body>. submit() ignores repeats. */}
       <Button type="submit" variant="primary" size="lg" icon="search" loading={loading}
-              disabled={loading || !service || !place.trim()}>
+              disabled={!service || !place.trim()}>
         Find facilities
       </Button>
 
