@@ -1,6 +1,6 @@
 # Care Finder (Databricks App)
 
-React + FastAPI app over `workspace.datathon.find_care` (Find care) and `gold_district_access` (District planner). Plan and status: [`../interface_build_plan.md`](../interface_build_plan.md).
+React + FastAPI app over `workspace.datathon.find_care` (Find care) and `gold_district_access` (District planner).
 
 ```
 app/

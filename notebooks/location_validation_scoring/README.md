@@ -44,7 +44,7 @@ widgets (`out_catalog` / `out_schema`, default `workspace.default`).
 * `find_care` and the district planner leave out facilities scoring 0-2 and report how many in
   `n_excluded_unverified_location`. The score is shown on the card (badge + five checks), and its weighted sum `location_validation_s` gives the 6
   `q_location` points of Quality and the 15 `pts_location` points of Trust (`src/03_gold_facility_services.sql`).
-* Plan and decisions: [`../../location_scoring_integration_plan.md`](../../location_scoring_integration_plan.md).
+* Decisions: [`DECISIONS.md`](DECISIONS.md).
 
 ```sql
 SELECT * FROM workspace.datathon.silver_location_validation WHERE location_validation_passed
