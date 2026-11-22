@@ -25,7 +25,7 @@ rules in `SCORING_CRITERIA.md`.
 |---|---|
 | Code: `_scoring_common`, `02`, `03`, job, notebook `00` removed | done |
 | Care Finder: `src/02`, `src/03`, app text, partial status on cards | done |
-| Docs: criteria, decisions, review, README | done |
+| Docs: criteria, decisions, review, README, `LOCATION_SCORING_MODEL.md` | done |
 | Run `02` in `workspace.default`, v1.0 → v1.1 transition (v1.0 kept as `bronze_locval_scores_v1_0_0`) | done |
 | Sandbox: `03` with `publish_prefix=lvsbx_`, then `src/02` + `src/03` against `workspace.default.lvsbx_*` | done |
 | Publish (`03`) + rebuild `workspace.datathon` + app deploy | agreed 2026-11-21, in progress |

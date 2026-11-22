@@ -11,6 +11,9 @@ The score is a **multi-criteria weighted sum (MCDM)** of five checks:
 
 Phone numbers are **not** scored (removed in v1.1, see `DECISIONS.md` V1).
 
+For the full model write-up (purpose, rationale, results, limitations, operation), see
+[`LOCATION_SCORING_MODEL.md`](LOCATION_SCORING_MODEL.md). This file is the authoritative rule set.
+
 ## Reference data
 
 | Source | Used for |
@@ -114,3 +117,17 @@ Examples:
   `pincode_used`, `pincode_source`, `point_status`, `point_n_facilities`, `point_shared`, `coord_ref_source`,
   `coord_median_km`, `coord_radius_km`.
 * `scoring_version`, `scored_at`.
+
+## Known limitations
+
+* The score measures **consistency** between the record's own fields, not correctness: there is no labelled ground
+  truth yet (`SCORING_REVIEW.md` G2).
+* Pincodes larger than 25 km can fail coordinates even when the point is correct (worth at most 0.20 of S).
+* Locality names and landmarks in the address lines are not matched (G3).
+
+## Version history
+
+| Version | Date | Change |
+|---|---|---|
+| 1.0.0 | 2026-11-21 | First version: rule table over four main checks plus phone and coordinate checks. |
+| 1.1.0 | 2026-11-21 | Phones removed. MCDM weighted sum with swing weights, two-main-check gate, pair checks must include T, median-point coordinates with a spread-scaled radius, shared points fail, half credit for neighbour pincodes and inferred states. Feeds Care Finder Quality and Trust. (`DECISIONS.md` V1–V12) |

@@ -4,6 +4,7 @@ This pipeline gives every facility a `location_validation_score` (0–5; 3 or hi
 from bronze. The score (v1.1) is a weighted sum (MCDM, swing weights) of five cross-checks: pincode, city/state,
 district + region, circle + division and coordinates. Phone numbers are no longer scored.
 
+* Model write-up: [`LOCATION_SCORING_MODEL.md`](LOCATION_SCORING_MODEL.md)
 * Rules: [`SCORING_CRITERIA.md`](SCORING_CRITERIA.md)
 * The reasoning behind every rule, and the row repairs: [`DECISIONS.md`](DECISIONS.md)
 
