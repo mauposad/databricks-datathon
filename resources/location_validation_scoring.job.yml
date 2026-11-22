@@ -1,4 +1,4 @@
-# Location validation scoring pipeline: builds the directory/office tables it depends on, the phone reference,
+# Location validation scoring pipeline: builds the directory/office tables it depends on,
 # repairs CSV-split facility rows, then scores every facility. Run on demand:
 #   databricks bundle run location_validation_scoring --target dev
 # All tasks run on serverless (no cluster spec). STANDARD performance: batch run, nobody waits on it.
@@ -7,8 +7,8 @@ resources:
     location_validation_scoring:
       name: location_validation_scoring
       description: >-
-        Gives every facility a location_validation_score (0-5, pass >= 3) by cross-checking pincode, city/state,
-        district/region, circle/division, coordinates and phone numbers. Writes workspace.default.bronze_locval_*.
+        Gives every facility a location_validation_score (0-5, pass >= 3, MCDM weighted sum) by cross-checking
+        pincode, city/state, district/region, circle/division and coordinates. Writes workspace.default.bronze_locval_*.
         Rules: notebooks/location_validation_scoring/SCORING_CRITERIA.md
       performance_target: STANDARD
       max_concurrent_runs: 1
@@ -25,19 +25,14 @@ resources:
           description: India Post office table (bronze_loclink_offices) and the other location-linkage bronze tables
           notebook_task:
             notebook_path: ../notebooks/location_linkage/00_build_location_pairs.py
-        - task_key: ingest_phone_reference
-          description: in-mob-prefix CSVs + circle models -> bronze_locval_mobile_prefix
-          notebook_task:
-            notebook_path: ../notebooks/location_validation_scoring/00_ingest_phone_reference.py
         - task_key: repair_facility_rows
           description: Merge CSV-split rows back into their facility -> bronze_locval_facilities_repaired
           notebook_task:
             notebook_path: ../notebooks/location_validation_scoring/01_repair_facility_rows.py
         - task_key: score_locations
-          description: Checks + score -> bronze_locval_scores, _phone_numbers, _score_summary
+          description: Checks + score -> bronze_locval_scores, _score_summary
           depends_on:
             - task_key: build_location_pairs
-            - task_key: ingest_phone_reference
             - task_key: repair_facility_rows
           notebook_task:
             notebook_path: ../notebooks/location_validation_scoring/02_score_locations.py

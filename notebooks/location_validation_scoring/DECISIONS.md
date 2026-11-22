@@ -56,8 +56,27 @@ Recorded in `location_scoring_integration_plan.md`. In short:
 * Publish one score per `cluster_id` to `workspace.datathon.silver_location_validation`.
 * Silver reads the repaired rows, and unscored facilities are flagged, not dropped.
 * `find_care` and the district planner exclude scores 0–2.
-* The score is display-only: it does not change rank.
+* The score is display-only: it does not change rank. *(Superseded by V11.)*
 * Scoring revisions wait for v1.1.
+
+## v1.1 team decisions (2026-11-21)
+
+These replace the rules they name. Items refer to `SCORING_REVIEW.md`.
+
+| # | Item | Decision | Replaces |
+|---|---|---|---|
+| V1 | H1–H3, L5, L6 | **Phone numbers are removed from scoring.** Match rates are too low to rely on (model circles match 17 % of the time), and number portability, wide telecom circles and scraped lists make the evidence too loose. Notebook `00_ingest_phone_reference` and its job task are removed. | T10, T12 (phone half), T18, D7–D11 |
+| V2 | H4, L4 | Coordinates are compared to the pincode's **median office point**, within `clamp(spread_p90_km, 10, 25)` km. Pass/fail, no partial band. G keeps its 10 km search. | T6 (now the floor), D6 |
+| V3 | H5 | A pincode missing from the directory is replaced by the nearest pincode with the same first 5 digits that has an office in the **stated** state. The pincode check then scores **partial** (0.5). | F2 |
+| V4 | H6 | With no usable state, the state is inferred from the city when the city's matched districts all lie in one state. City/state then scores **partial** (0.5). | D3 (last sentence) |
+| V5 | L1 | The rule table is replaced by an **MCDM weighted sum** with **swing weights** (pincode 100, city/state 90, coordinates 80, district/region 70, circle/division 60). Main checks carry 80 % of the weight and no check more than 25 %, so no single field decides the score. Weights are set from current evidence, **not tuned on results**. | T11, D1 |
+| V6 | L1 | Bands: S ≥ 0.85 → 5, ≥ 0.70 → 4, ≥ 0.60 → 3, below → 2 (fail). | T11 |
+| V7 | L2 | Pair checks pass only when the agreeing pair **includes T** (the city text). `G=P` alone no longer passes. | D4 |
+| V8 | L3 | **Gate:** the four main checks' values must add up to ≥ 2 (a partial counts 0.5). Coordinates do not count. | T11 ("exactly 1 main → 3") |
+| V9 | L7 | A point shared by ≥ 3 different facilities (same `cluster_id` counts once, 5 decimals) fails the coordinate check and gives no G source. | D5 |
+| V10 | Missing coordinates | Still neutral: the coordinate weight is left out and the others are renormalised. | (keeps T12) |
+| V11 | Care Finder | The location validation score is the **main source for location scoring**: `q_location` (6 Quality points) = `round(6 × location_validation_s)` and `pts_location` (15 Trust points) = `round(15 × location_validation_s)`. A facility with no location score falls back to the old `location_confidence` rule (Quality 6/3/0, Trust 15/8/0). `location_confidence` still picks which map point is shown and filters the nearest-emergency fallback. The location score therefore **can now change rank** through Quality. | Integration decision "display-only" |
+| V12 | Rollout | v1.1 is run and compared in `workspace.default` first. Publishing to `workspace.datathon` (notebook 03) happens after the teammate who owns it agrees. | |
 
 ## Repairs of column-shifted rows (T14)
 

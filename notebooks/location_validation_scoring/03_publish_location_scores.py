@@ -18,7 +18,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install geopandas==1.0.1 plotly==5.24.1 phonenumbers==9.0.44 rapidfuzz==3.13.0 --quiet
+# MAGIC %pip install geopandas==1.0.1 plotly==5.24.1 rapidfuzz==3.13.0 --quiet
 
 # COMMAND ----------
 
@@ -28,7 +28,12 @@
 
 dbutils.widgets.text("publish_catalog", "workspace", "Publish catalog")
 dbutils.widgets.text("publish_schema", "datathon", "Publish schema")
-PUB = f"{dbutils.widgets.get('publish_catalog')}.{dbutils.widgets.get('publish_schema')}"
+# publish_prefix: '' for the live app; 'lvsbx_' (with publish_schema = default) for a sandbox copy that
+# src/*.sql can be pointed at (see CLAUDE.md)
+dbutils.widgets.text("publish_prefix", "", "Publish table prefix")
+PUB = f"{dbutils.widgets.get('publish_catalog')}.{dbutils.widgets.get('publish_schema')}.{dbutils.widgets.get('publish_prefix')}"
+assert PUB.rstrip(".") != f"{OUT_CATALOG}.{OUT_SCHEMA}" or dbutils.widgets.get("publish_prefix"), \
+    "publishing into the bronze schema needs a publish_prefix, or it would overwrite the bronze tables"
 
 for t in (vtbl("scores"), vtbl("facilities_repaired")):
     assert spark.catalog.tableExists(t), f"{t} is missing: run notebooks 00-02 first"
@@ -39,8 +44,8 @@ CHECKS = [  # (key, column, label, kind)
     ("city_state", "chk_city_state", "City matches a district or post office in the stated state", "main"),
     ("district_region", "chk_district_region", "District and postal region agree across two sources", "main"),
     ("circle_division", "chk_circle_division", "Postal circle and division agree across two sources", "main"),
-    ("coordinates", "chk_coordinates", f"Map point within {COORD_MATCH_KM:g} km of the pincode's post offices", "secondary"),
-    ("phone", "chk_phone", "Phone numbers point to the stated or pincode state", "secondary"),
+    ("coordinates", "chk_coordinates",
+     f"Map point near the pincode's centre ({COORD_RADIUS_MIN_KM:g}-{COORD_RADIUS_MAX_KM:g} km, by pincode size)", "secondary"),
 ]
 WHY_TEXT = {
     "pincode_missing": "No pincode in the record.",
@@ -51,24 +56,28 @@ WHY_TEXT = {
     "state_missing_or_unresolved": "The state is missing or not a recognisable state name.",
     "city_missing": "No city in the record.",
     "city_not_found_in_stated_state": "The city was not found among the districts or post offices of the stated state.",
-    "fewer_than_two_sources": "Fewer than two of pincode, city text and map point could be placed in the directory.",
-    "sources_disagree": "Pincode, city text and map point name different areas.",
+    "pincode_neighbour_used": "The written pincode is not in the India Post directory; its nearest neighbour in the "
+                              "same state was used instead (counts half).",
+    "state_inferred_from_city": "No usable state was written; it was taken from the city, which exists in only one "
+                                "state (counts half).",
+    "city_text_not_placed": "The city text could not be placed in the directory, so there is nothing to confirm "
+                            "the pincode or map point against.",
+    "no_second_source": "Neither the pincode nor the map point could be placed in the directory to confirm the city.",
+    "sources_disagree_with_city_text": "The city text names a different area than the pincode and the map point.",
     "point_outside_india": "The map point is outside India.",
     "no_geocoded_reference_office": "No geocoded post office to compare the map point with.",
-    "phone_missing": "No phone number in the record.",
-    "phone_not_locatable": "None of the phone numbers could be placed (toll-free, invalid or unknown series).",
-    "no_reference_state": "No state to compare the phone numbers with.",
-    "single_phone_state_differs": "The only phone number belongs to a different state.",
-    "fewer_than_two_phones_match": "Fewer than two of the phone numbers belong to the facility's state.",
 }
 
 
 def why_text(code):
     if not code:
         return None
-    if code.startswith("nearest_reference_office_"):
-        km = code.removeprefix("nearest_reference_office_").removesuffix("_km")
-        return f"The map point is {km} km from the nearest post office of its pincode."
+    m = re.fullmatch(r"median_point_(\d+)_km_radius_(\d+)_km", code)
+    if m:
+        return f"The map point is {m[1]} km from the centre of its pincode (allowed: {m[2]} km)."
+    m = re.fullmatch(r"shared_point_(\d+)_facilities", code)
+    if m:
+        return f"The same map point is used by {m[1]} different facilities, so it is likely a default location."
     return WHY_TEXT.get(code, code.replace("_", " "))
 
 # COMMAND ----------
@@ -78,11 +87,11 @@ def why_text(code):
 # COMMAND ----------
 
 spark.sql(f"""
-CREATE OR REPLACE TABLE {PUB}.bronze_locval_facilities_repaired
+CREATE OR REPLACE TABLE {PUB}bronze_locval_facilities_repaired
 COMMENT 'Copy of workspace.default.bronze_locval_facilities_repaired: every facilities row, CSV-split rows merged into their head (repair_status). src/02_silver_facilities.sql reads this instead of the raw share. Built by notebooks/location_validation_scoring.'
 AS SELECT * FROM {vtbl('facilities_repaired')}
 """)
-print(f"wrote {PUB}.bronze_locval_facilities_repaired")
+print(f"wrote {PUB}bronze_locval_facilities_repaired")
 
 # COMMAND ----------
 
@@ -115,7 +124,7 @@ def checks_of(r):
         v = r[col]
         status = ("pass" if v else "fail") if isinstance(v, (bool, np.bool_)) else (v if isinstance(v, str) else None)
         out.append({"check_key": key, "check_label": label, "kind": kind, "status": status,
-                    "why": why_text(r[f"why_{key}"]) if status == "fail" else None})
+                    "why": why_text(r[f"why_{key}"]) if status in ("fail", "partial") else None})
     return out
 
 
@@ -129,8 +138,12 @@ pub = pd.DataFrame({
     "location_validation_score": pick["location_validation_score"].astype("Int64"),
     "location_validation_label": pick["location_validation_label"],
     "location_validation_passed": pick["location_validation_passed"].astype("boolean"),
+    "location_validation_s": pick["location_validation_s"].astype(float),
+    "main_value": pick["main_value"].astype(float),
     "n_main_pass": pick["n_main_pass"].astype("Int64"),
+    "location_validation_fail_reason": pick["location_validation_fail_reason"],
     "failed_checks": pick["failed_checks"],
+    "partial_checks": pick["partial_checks"],
     "min_score_in_cluster": pick["min_score_in_cluster"].astype("Int64"),
     "max_score_in_cluster": pick["max_score_in_cluster"].astype("Int64"),
     "repair_status": pick["repair_status"],
@@ -142,7 +155,8 @@ pub["published_at"] = now_utc()
 
 schema = """facility_id STRING, unique_id STRING, n_rows_in_cluster INT, n_rows_scored INT,
   location_validation_status STRING, location_validation_score INT, location_validation_label STRING,
-  location_validation_passed BOOLEAN, n_main_pass INT, failed_checks STRING,
+  location_validation_passed BOOLEAN, location_validation_s DOUBLE, main_value DOUBLE, n_main_pass INT,
+  location_validation_fail_reason STRING, failed_checks STRING, partial_checks STRING,
   min_score_in_cluster INT, max_score_in_cluster INT, repair_status STRING, scoring_version STRING, scored_at TIMESTAMP,
   location_checks ARRAY<STRUCT<check_key: STRING, check_label: STRING, kind: STRING, status: STRING, why: STRING>>,
   published_at TIMESTAMP"""
@@ -159,11 +173,12 @@ def to_py(v):
 
 records = [{k: to_py(v) for k, v in r.items()} for r in pub.astype(object).to_dict("records")]
 sdf = spark.createDataFrame(records, schema=schema)
-full = f"{PUB}.silver_location_validation"
+full = f"{PUB}silver_location_validation"
 sdf.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(full)
 spark.sql(f"""COMMENT ON TABLE {full} IS {json.dumps(
     f'Location validation score per facility_id (= cluster_id), v{SCORING_VERSION}: 0-5, pass >= {PASS_SCORE}. The score '
-    'is that of the row silver keeps for the cluster (longest capability+procedure). location_checks = the six checks '
+    'is that of the row silver keeps for the cluster (longest capability+procedure). location_validation_s = MCDM '
+    'weighted sum (0-1). location_checks = the five checks '
     'with plain-language reasons. Rules: notebooks/location_validation_scoring/SCORING_CRITERIA.md')}""")
 print(f"wrote {full}: {len(pub):,} facilities")
 

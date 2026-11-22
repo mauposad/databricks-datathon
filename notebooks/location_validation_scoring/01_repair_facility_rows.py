@@ -30,7 +30,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install geopandas==1.0.1 plotly==5.24.1 phonenumbers==9.0.44 rapidfuzz==3.13.0 --quiet
+# MAGIC %pip install geopandas==1.0.1 plotly==5.24.1 rapidfuzz==3.13.0 --quiet
 
 # COMMAND ----------
 

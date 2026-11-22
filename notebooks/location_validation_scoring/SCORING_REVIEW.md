@@ -4,7 +4,10 @@ These notes come from the first full run (2026-11-21, 10,000 facilities). All nu
 `workspace.default.bronze_locval_scores` and `bronze_locval_phone_numbers`. Each item gives the evidence, the
 direction of the error and a candidate fix. **None are applied yet**: they are for the team to iterate on.
 
-Score distribution today: 5 → 5,616 · 4 → 3,786 · 3 → 554 · 2 → 44. 99.6 % pass.
+**Status (v1.1.0):** H1–H3, L5, L6 resolved by removing phones (DECISIONS V1). H4 + L4 → V2, H5 → V3, H6 → V4,
+L1 → V5/V6, L2 → V7, L3 → V8, L7 → V9. G1–G4 are still open.
+
+v1.0 score distribution: 5 → 5,616 · 4 → 3,786 · 3 → 554 · 2 → 44. 99.6 % pass.
 
 ## Too harsh
 

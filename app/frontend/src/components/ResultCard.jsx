@@ -198,10 +198,10 @@ function PickStrength({ rec }) {
 }
 
 // Location validation (notebooks/location_validation_scoring): do the record's pincode, city, district, postal
-// circle, map point and phones agree? Shown for transparency; it does not change the rank. Facilities scoring 0-2
+// circle and map point agree? Its weighted agreement feeds the location part of Quality. Facilities scoring 0-2
 // never reach the app (find_care leaves them out).
-const LOC_ICON = { pass: '✓', fail: '✗', missing: '–' }
-const LOC_CLASS = { pass: 'check-found', fail: 'check-contradicted', missing: 'check-unknown' }
+const LOC_ICON = { pass: '✓', partial: '½', fail: '✗', missing: '–' }
+const LOC_CLASS = { pass: 'check-found', partial: 'check-unknown', fail: 'check-contradicted', missing: 'check-unknown' }
 const LOC_LABEL = { verified_all: 'every check agrees', verified_strong: 'strong agreement', verified_partial: 'partial agreement' }
 
 function LocationBadge({ lv }) {
@@ -221,7 +221,7 @@ function LocationChecks({ lv }) {
     <>
       <p className="small muted">
         {lv.score}/5, {LOC_LABEL[lv.label] || lv.label}. We compare the record's own pincode, city, district, postal
-        circle, map point and phone numbers with each other. This is shown for transparency and does not change the rank.
+        circle and map point with each other. How well they agree makes up the location part of Quality.
       </p>
       <ul className="checklist">
         {lv.checks.map((c) => (
@@ -232,7 +232,7 @@ function LocationChecks({ lv }) {
                 <span>{c.label}</span>
                 {c.kind === 'secondary' && <span className="muted small">supporting check</span>}
               </div>
-              {c.status === 'fail' && c.why && <div className="muted small">{c.why}</div>}
+              {(c.status === 'fail' || c.status === 'partial') && c.why && <div className="muted small">{c.why}</div>}
               {c.status === 'missing' && <div className="muted small">Not in the record (does not count against it).</div>}
             </div>
           </li>

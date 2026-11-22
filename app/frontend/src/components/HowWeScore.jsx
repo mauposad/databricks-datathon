@@ -18,9 +18,12 @@ export default function HowWeScore({ method, rule }) {
             tip on any facility that would become the best option.</p>
           <p><b>Location checks.</b> Each facility's location gets a score from 0 to 5 for how well its own claims agree:
             pincode, city and state, district and postal region, postal circle and division (main checks), plus the map point
-            and phone numbers (supporting checks). 5 = all agree; 4 = all main checks agree, or 2-3 do and both supporting
-            checks agree; 3 = some agree. Facilities scoring 0-2 are left out because their location could not be verified.
-            Facilities not yet checked are shown and marked "Location not validated". The location score does not change the rank.</p>
+            (supporting check). Each check has a fixed weight (pincode 25%, city and state 22.5%, map point 20%, district 17.5%,
+            postal circle 15%), and weaker evidence, such as a neighbouring pincode or a state taken from the city, counts
+            half. 5 = weighted agreement of 85% or more, 4 = 70% or more, 3 = 60% or more. A location must also pass at
+            least two main checks. Facilities scoring 0-2 are left out because their location could not be verified.
+            Facilities not yet checked are shown and marked "Location not validated". The weighted agreement also gives the
+            location points of Quality (6) and of Trust (15).</p>
           <p className="muted">Evidence is matched in the facility's own listed procedures, capabilities, equipment,
             specialties and description, and quoted word for word on each card. Nothing is inferred by an AI model:
             the ranking is a fixed formula over the cleaned data in <code>workspace.datathon</code>.</p>

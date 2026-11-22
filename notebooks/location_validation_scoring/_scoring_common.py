@@ -3,7 +3,7 @@
 # MAGIC # `_scoring_common`: shared config and helpers for the location-validation scoring pipeline
 # MAGIC
 # MAGIC Loaded by every notebook in this folder with `%run ./_scoring_common`. The calling notebook must first
-# MAGIC `%pip install geopandas==1.0.1 plotly==5.24.1 phonenumbers==9.0.44 rapidfuzz==3.13.0` (the serverless job environment, Python 3.12 + numpy 2, has no plotly, which `location_linkage/_common` imports; 5.24.1 works with numpy 2).
+# MAGIC `%pip install geopandas==1.0.1 plotly==5.24.1 rapidfuzz==3.13.0` (the serverless job environment, Python 3.12 + numpy 2, has no plotly, which `location_linkage/_common` imports; 5.24.1 works with numpy 2).
 # MAGIC
 # MAGIC It reuses `../location_linkage/_common` (state canonicalisation, `norm_text`, haversine, output widgets),
 # MAGIC so both pipelines spell states and normalise text the same way. Scoring rules live in
@@ -18,27 +18,35 @@
 import datetime as _dt
 import functools
 
-import phonenumbers
-from phonenumbers import PhoneNumberType, geocoder
 from rapidfuzz import fuzz
 
-SCORING_VERSION = "1.0.0"
-REF_VOLUME = "locval_ref"
-REF_DIR = f"/Volumes/{OUT_CATALOG}/{OUT_SCHEMA}/{REF_VOLUME}"
+SCORING_VERSION = "1.1.0"
 
 FUZZY_THRESHOLD = 0.85  # similarity (0-1) for any text-vs-text comparison
-COORD_MATCH_KM = 10.0   # facility point must be within this distance of a reference post office
-PASS_SCORE = 3          # scores 0, 1, 2 fail
+G_SEARCH_KM = 10.0      # source G: geocoded post offices within this distance of the facility point
+# coordinate check (v1.1, H4/L4): distance to the pincode's median office point must be within
+# clamp(spread_p90_km, COORD_RADIUS_MIN_KM, COORD_RADIUS_MAX_KM)
+COORD_RADIUS_MIN_KM = 10.0  # team decision T6
+COORD_RADIUS_MAX_KM = 25.0  # silver's "agree" band
+SHARED_POINT_MIN_FACILITIES = 3  # a point used by >= this many distinct clusters is shared/default (L7)
+SHARED_POINT_DECIMALS = 5        # points are compared after rounding to this many decimals (~1 m)
 
-# in-mob-prefix (CC BY 4.0, https://github.com/hstsethi/in-mob-prefix), pinned so reruns are reproducible
-MOBPREFIX_COMMIT = "153ba809d514e74f62a1dc88fb10f0cb1a562e0e"
-MOBPREFIX_LEVELS = ["6", "7", "8", "9"]
-
-
-def mobprefix_url(level):
-    return (f"https://raw.githubusercontent.com/hstsethi/in-mob-prefix/{MOBPREFIX_COMMIT}/"
-            f"data/{level}xxx-in-mob-prefix.csv")
-
+# MCDM (v1.1, L1): swing-weighting ratings. The check whose swing from fail to pass matters most is rated 100,
+# the others relative to it; weights = rating / sum. Set from the v1.0 evidence, not tuned on v1.1 results.
+SWING_RATINGS = {
+    "pincode": 100,          # validated against the official directory; the most specific written claim
+    "city_state": 90,        # written text; the only check that never depends on the pincode or the point
+    "coordinates": 80,       # independent physical evidence, but scraped points are often geocoder guesses
+    "district_region": 70,   # pair check; partly derived from the same pincode / city text (L2)
+    "circle_division": 60,   # coarsest postal unit, so the weakest discriminator
+}
+MCDM_WEIGHTS = {k: v / sum(SWING_RATINGS.values()) for k, v in SWING_RATINGS.items()}
+MAIN_CHECKS = ["pincode", "city_state", "district_region", "circle_division"]
+SECONDARY_CHECKS = ["coordinates"]
+CHECK_VALUE = {"pass": 1.0, "partial": 0.5, "fail": 0.0}  # partial = weaker evidence (H5 neighbour pincode, H6 inferred state)
+MIN_MAIN_VALUE = 2.0  # gate (L3): main-check values must add up to >= 2 (a partial counts 0.5)
+SCORE_BANDS = [(5, 0.85), (4, 0.70), (3, 0.60)]  # weighted sum S -> score; S < 0.60 fails (2)
+PASS_SCORE = 3        # scores 0, 1, 2 fail
 
 def vtbl(name):
     """Tables of this pipeline: bronze_locval_<name>."""
@@ -137,97 +145,6 @@ def resolve_state(s):
     scored = [(similarity(n, st), st) for st in CANON_STATES]
     best = max(scored)
     return best[1] if best[0] >= FUZZY_THRESHOLD else None
-
-# COMMAND ----------
-
-# MAGIC %md ## Phone numbers
-# MAGIC
-# MAGIC * **Classification and landline area**: Google libphonenumber (`phonenumbers`, Apache-2.0). It knows
-# MAGIC   the DoT STD/SDCA plan, so a landline such as `+91 712 662 4444` resolves to "Nagpur, Maharashtra".
-# MAGIC * **Mobile circle**: the 4-digit series (first four digits of the 10-digit number) is looked up in
-# MAGIC   in-mob-prefix (`bronze_locval_mobile_prefix`). Series missing from its CSV, or listed with a blank circle,
-# MAGIC   use the circle predicted by a model trained with in-mob-prefix's own recipe (see notebook 00).
-# MAGIC * Telecom circles (licensed service areas) are not India Post circles. `TELECOM_CIRCLE_STATES` lists the
-# MAGIC   states each one covers, so phone evidence is compared at **state** level.
-
-# COMMAND ----------
-
-TELECOM_CIRCLE_STATES = {
-    "AP": {"ANDHRA PRADESH", "TELANGANA"},
-    "AS": {"ASSAM"},
-    "BR": {"BIHAR", "JHARKHAND"},
-    # Delhi LSA also serves the NCR towns Gurugram, Faridabad (Haryana) and Noida, Ghaziabad (UP)
-    "DL": {"DELHI", "HARYANA", "UTTAR PRADESH"},
-    "GJ": {"GUJARAT", DNHDD},
-    "HP": {"HIMACHAL PRADESH"},
-    "HR": {"HARYANA"},
-    "JK": {"JAMMU AND KASHMIR", "LADAKH"},
-    "KA": {"KARNATAKA"},
-    "KL": {"KERALA", "LAKSHADWEEP", "PUDUCHERRY"},  # Mahe (Puducherry) sits inside Kerala
-    "MH": {"MAHARASHTRA", "GOA"},                    # Mumbai metro merged into MH upstream
-    "MP": {"MADHYA PRADESH", "CHHATTISGARH"},
-    "NE": {"ARUNACHAL PRADESH", "MANIPUR", "MEGHALAYA", "MIZORAM", "NAGALAND", "TRIPURA"},
-    "OR": {"ODISHA"},
-    "PB": {"PUNJAB", "CHANDIGARH"},
-    "RJ": {"RAJASTHAN"},
-    "TN": {"TAMIL NADU", "PUDUCHERRY"},              # Chennai metro merged into TN upstream
-    "UE": {"UTTAR PRADESH"},
-    "UW": {"UTTAR PRADESH", "UTTARAKHAND"},
-    "UP": {"UTTAR PRADESH", "UTTARAKHAND"},
-    "WB": {"WEST BENGAL", "SIKKIM", "ANDAMAN AND NICOBAR ISLANDS"},  # Kolkata metro merged into WB upstream
-}
-assert all(s in CANON_STATES for v in TELECOM_CIRCLE_STATES.values() for s in v)
-
-# libphonenumber area descriptions that carry no ", State" suffix
-AREA_STATE_OVERRIDES = {"NEW DELHI": "DELHI", "DELHI": "DELHI", "MUMBAI": "MAHARASHTRA",
-                        "KOLKATA": "WEST BENGAL", "CHENNAI": "TAMIL NADU", "CHANDIGARH": "CHANDIGARH"}
-LOCATABLE_TYPES = {PhoneNumberType.FIXED_LINE, PhoneNumberType.MOBILE, PhoneNumberType.FIXED_LINE_OR_MOBILE}
-PHONE_TYPE_NAME = {v: k for k, v in vars(PhoneNumberType).items() if isinstance(v, int)}
-
-
-def parse_phone_list(official, numbers_json):
-    """All distinct phone strings of a facility: officialPhone plus the JSON array in phone_numbers."""
-    raw = []
-    for v in (official,):
-        if v and str(v).strip().lower() not in ("null", "none", ""):
-            raw.append(str(v))
-    if numbers_json and str(numbers_json).strip().lower() not in ("null", "none", ""):
-        try:
-            arr = json.loads(numbers_json)
-            raw.extend(str(x) for x in (arr if isinstance(arr, list) else [arr]) if x)
-        except (ValueError, TypeError):
-            raw.extend(re.findall(r"\+?\d[\d\s\-()]{7,}\d", str(numbers_json)))
-    seen, out = set(), []
-    for r in raw:
-        digits = re.sub(r"[^\d+]", "", r)
-        if digits and digits not in seen:
-            seen.add(digits)
-            out.append(digits)
-    return out
-
-
-def classify_phone(raw):
-    """-> dict(e164, nsn, phone_type, area_desc, area_state). Pure libphonenumber; mobile circle added later."""
-    out = dict(raw=raw, e164=None, nsn=None, phone_type="UNPARSEABLE", area_desc=None, area_state=None)
-    try:
-        p = phonenumbers.parse(raw, "IN")
-    except phonenumbers.NumberParseException:
-        return out
-    if p.country_code != 91 or not phonenumbers.is_valid_number(p):
-        out["phone_type"] = "INVALID_OR_FOREIGN"
-        return out
-    t = phonenumbers.number_type(p)
-    out["e164"] = phonenumbers.format_number(p, phonenumbers.PhoneNumberFormat.E164)
-    out["nsn"] = str(p.national_number)
-    out["phone_type"] = PHONE_TYPE_NAME.get(t, str(t))
-    if t == PhoneNumberType.FIXED_LINE:
-        desc = geocoder.description_for_number(p, "en") or None
-        out["area_desc"] = desc
-        if desc:
-            parts = [x.strip() for x in desc.split(",")]
-            st = resolve_state(parts[-1]) if len(parts) > 1 else None
-            out["area_state"] = st or AREA_STATE_OVERRIDES.get(norm_text(parts[0])) or resolve_state(parts[0])
-    return out
 
 # COMMAND ----------
 
