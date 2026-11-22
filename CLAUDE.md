@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Virtue Foundation India Healthcare Datathon on Databricks, at the bronze/exploration stage. There are no tests or build tooling. Code is Databricks notebooks in source format (`# Databricks notebook source` / `# COMMAND ----------` / `# MAGIC`), synced to the workspace by the Asset Bundle (`databricks.yml`; `resources/` holds no jobs yet). Notebooks run on **serverless** compute.
+Virtue Foundation India Healthcare Datathon on Databricks, at the bronze/exploration stage. There are no tests or build tooling. Code is Databricks notebooks in source format (`# Databricks notebook source` / `# COMMAND ----------` / `# MAGIC`), synced to the workspace by the Asset Bundle (`databricks.yml`; `resources/` holds the `location_validation_scoring` job). Notebooks run on **serverless** compute.
 
 The user wants questions instead of assumptions about data semantics (which location source is "true", how to collapse a pincode to one point, etc.). Surface the choice; don't pick silently.
 
@@ -42,6 +42,7 @@ To fix a profile that points at the wrong workspace, run `databricks auth logout
 ## Notebooks
 
 - `notebooks/location_linkage/`: facility-coordinate vs. pincode-location analysis. `00_build_location_pairs` builds all `bronze_loclink_*` tables. `01`–`10` are one notebook per region definition. `11` covers source disagreement and `12` compares pincode-point strategies. `13` overlays GHSL urban-centre population clusters (external download, CC BY 4.0) on the pairs. Shared code is in `_common.py`, loaded with `%run ./_common`, and every notebook first runs `%pip install geopandas==1.0.1`. See that folder's README for run order and outputs.
+- `notebooks/location_validation_scoring/`: location validation score (0–5, pass ≥ 3) per facility → `bronze_locval_*` tables. Rules in its `SCORING_CRITERIA.md`, rationale in `DECISIONS.md`. Bundle job `location_validation_scoring` (`resources/location_validation_scoring.job.yml`) runs `location_linkage/00` + its notebooks `00`–`02` on serverless.
 - Region notebooks all write into `bronze_loclink_region_summary` with `replaceWhere scheme=...`, so run them sequentially, not in parallel.
 - Job-run notebook output is capped at 10 MB for `jobs export-run`; notebook 13 sits near it.
 - Serverless runtime has old plotly (5.9: no `Scattermap`; px fails on unused categorical levels) and pandas 1.5.
