@@ -108,6 +108,70 @@ The CLI bundle configuration is useful for later deployment of jobs, pipelines,
 and other resources. It is not required to create a Repo or to browse the
 workspace.
 
+## Cleaned data: `workspace.datathon`
+
+The job `build_facility_tables` (defined in `resources/build_facility_tables.job.yml`) runs the SQL
+notebooks in `src/` on the Serverless Starter Warehouse and rebuilds these objects. It only reads from
+the Marketplace share, which stays untouched.
+
+| Object | Layer | Grain | Purpose |
+|---|---|---|---|
+| `silver_pincode_geo` | silver | one row per PIN code | Robust PIN location (placeholder + outlier coordinates removed), district/state, ambiguity counts |
+| `silver_facilities` | silver | one row per facility (`cluster_id`) | Deduplicated, parsed claim arrays, resolved location + confidence, data-quality flags, `record_coherence_score` with named `coh_*` deductions, `identity_conflict` |
+| `silver_identity_claims` | silver | one row per identity claim | Coordinates, PIN, city, state, "located in" places, other facilities named, near-duplicates, each marked as agreeing with the resolved location or not |
+| `silver_possible_duplicates` | silver | one row per record pair | Different records within 3 km with near-identical distinctive names and the same focus; flagged, never merged |
+| `ref_city_districts` | reference | city × district | City spellings learned from records whose coordinates and PIN agree ("Bangalore" ↔ Bengaluru Urban) |
+| `ref_state_aliases`, `ref_services` | reference | | State spelling fixes; the keyword rules that define each searchable service |
+| `gold_facility_services` | gold | one row per facility × service | Cited evidence, evidence tier, 0–100 trust score with its components, caveats |
+| `facility_phrases` | gold (helper) | one row per phrase | Every verbatim phrase of every record (procedures, capabilities, equipment, description sentences, specialties) |
+| `ref_service_requirements` | reference | one row per service × check | Evidence dimensions for the 6 headline services (not a clinical checklist); points sum to 60 |
+| `gold_facility_service_checks` | gold | one row per facility × service × check | found / unknown / contradicted, with the phrase that decided it; missing = unknown, never a penalty |
+| `ref_service_support` | reference | one row per service × supporting service | Supporting services that count toward readiness (e.g. ICU + blood bank + NICU for C-section) |
+| `ref_service_policy` | reference | one row per service | Travel-time budget and urgency (C-section 60 min, dialysis 45 min, cardiac surgery 240 min, ...) |
+| `verifications`, `verifications_latest` | overlay | one row per reviewer decision | Confirm / Reject from the app (reviewer = Databricks Apps user). `find_care` applies the latest decision per facility × service × check; never merged into silver/gold, and kept across rebuilds |
+| `gold_district_access` | gold (planner) | district × headline service | Travel time from each district centre to the nearest quality facility (strong/moderate, Quality ≥ 70) and nearest facility with any evidence, with NFHS-5 indicators |
+| `ref_nfhs_district_match` | reference | NFHS district | NFHS-5 district → India Post district (98% matched; rule recorded: exact, spacing, rename, prefix, spelling) |
+| `resolve_location(place)` | function | | PIN code, `lat,lon`, city, **post office / village** ("Raghopur", or "Sadikpur, Bihar" to disambiguate) or district → coordinates, with a note when a name is ambiguous |
+| `find_care(service, place, max_km, top_n, operator_filter)` | function | | Quality-first ranking within the travel budget, with a `why` (citations), `how` (Quality arithmetic), evidence checklist, labelled quotes, call-to-confirm, nearest-option trade-off, safety line and search notes; `operator_filter => 'public'` for government facilities only |
+
+**How results are ranked** (also returned verbatim in every row's `ranking_rule`): among facilities reachable within
+the service's travel budget, rank by Quality (0–100 = evidence ≤50 + readiness ≤30 + record reliability ≤20 −
+penalties). If two are within 10 Quality points, the closer one wins. Facilities beyond the budget come next, labelled
+"farther option"; weak (unconfirmed) evidence always comes last. If nothing qualifies in the radius, it is doubled up
+to 300 km. Travel time = straight-line km × 1.4 ÷ 35 km/h.
+
+**How stable is #1?** Every search also re-ranks under 5 named what-if scenarios (only strong evidence counts;
+single-source records ignored; uncertain locations moved to their alternate; travel budget doubled; readiness ignored)
+and reports "Stays #1 in k of 5", naming who would win otherwise. No random sampling.
+
+```sql
+SELECT * FROM workspace.datathon.find_care('dialysis', 'Jaipur');
+SELECT * FROM workspace.datathon.find_care('emergency c-section', '226001', 50, 5);
+SELECT * FROM workspace.datathon.find_care('trauma', 'Raghopur');                  -- village / post office
+SELECT * FROM workspace.datathon.find_care('emergency c-section', '226001', 50, 5, 'public');  -- government only
+```
+
+### Matching quality (hand-labelled evaluation)
+
+`eval/` holds 82 hand-labelled facility × service pairs and a script that reports precision/recall
+(see [`eval/README.md`](eval/README.md)). A facility counts as offering a service when its tier is strong or moderate.
+
+| version | precision | recall |
+|---|---|---|
+| keyword baseline (any alias anywhere) | 0.80 | 0.76 |
+| original rules (v1) | 0.78 | 0.76 |
+| exclusions + claim types + dental/eye scope gate | **1.00** | 0.75 |
+| + `probable` tier (large/teaching hospital lists the specialty) | **1.00** | 1.00 |
+
+Of 16 random `probable` rows, 7 were confirmed and 9 genuinely unclear, so `probable` is shown as "call to confirm".
+
+Rebuild everything (about 6 minutes):
+
+```bash
+databricks bundle deploy --target dev
+databricks bundle run build_facility_tables --target dev
+```
+
 ## Next setup decisions
 
 Before deploying Databricks resources, the team still needs to choose:
