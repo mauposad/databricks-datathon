@@ -9,8 +9,8 @@ import time
 from typing import Any
 
 from .. import sql
-from ..schema import (Check, Claim, Confidence, Evidence, Origin, Query, RecommendResponse, Recommendation, Score,
-                      ScorePart, Service)
+from ..schema import (Check, Claim, Confidence, Evidence, Origin, Query, RecommendResponse, Recommendation, Scenario,
+                      Score, ScorePart, Service)
 from .base import Adapter
 
 CONFIDENCE_RULE = ("High: trust ≥ 70 with strong/moderate evidence · Medium: trust 45–69 · Low: trust < 45 · "
@@ -88,6 +88,10 @@ def _tags(r: dict) -> list[str]:
         tags.append("Possible duplicate record")
     if r.get("identity_conflict"):
         tags.append("Identity not settled")
+    if r.get("verified_service") == "confirmed":
+        tags.append("Confirmed by a reviewer")
+    elif r.get("verified_service") == "rejected":
+        tags.append("Reported not available")
     return tags
 
 
@@ -151,6 +155,8 @@ def to_recommendation(r: dict) -> Recommendation:
         claims=[Claim(text=c["text"], field=c["field"], claim_type=c["claim_type"]) for c in (r.get("claims_cited") or [])],
         call_to_confirm=r.get("call_to_confirm"),
         identity_conflict=bool(r.get("identity_conflict")), coherence=r.get("record_coherence_score"),
+        verified_service=r.get("verified_service"), stability_note=r.get("stability_note"),
+        stable_first_in=r.get("stable_first_in"),
     )
 
 
@@ -186,6 +192,8 @@ class FindCareAdapter(Adapter):
                              label=first.get("searched_from"), matched_as=first.get("origin_matched_as"))
         resp.n_candidates = first.get("n_candidates") or len(rows)
         resp.results = [to_recommendation(r) for r in rows]
+        resp.service_key = next((s.key for s in self.services() if s.label == resp.service_label), None)
+        resp.scenarios = [Scenario(**x) for x in (first.get("scenario_winners") or [])]
         resp.ranking_rule = first.get("ranking_rule") or ""
         resp.travel_assumption = first.get("travel_assumption") or ""
         resp.search_note = first.get("search_note") or None

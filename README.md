@@ -128,6 +128,9 @@ the Marketplace share, which stays untouched.
 | `gold_facility_service_checks` | gold | one row per facility × service × check | found / unknown / contradicted, with the phrase that decided it; missing = unknown, never a penalty |
 | `ref_service_support` | reference | one row per service × supporting service | Supporting services that count toward readiness (e.g. ICU + blood bank + NICU for C-section) |
 | `ref_service_policy` | reference | one row per service | Travel-time budget and urgency (C-section 60 min, dialysis 45 min, cardiac surgery 240 min, ...) |
+| `verifications`, `verifications_latest` | overlay | one row per reviewer decision | Confirm / Reject from the app (reviewer = Databricks Apps user). `find_care` applies the latest decision per facility × service × check; never merged into silver/gold, and kept across rebuilds |
+| `gold_district_access` | gold (planner) | district × headline service | Travel time from each district centre to the nearest quality facility (strong/moderate, Quality ≥ 70) and nearest facility with any evidence, with NFHS-5 indicators |
+| `ref_nfhs_district_match` | reference | NFHS district | NFHS-5 district → India Post district (98% matched; rule recorded: exact, spacing, rename, prefix, spelling) |
 | `resolve_location(place)` | function | | PIN code, `lat,lon`, city, **post office / village** ("Raghopur", or "Sadikpur, Bihar" to disambiguate) or district → coordinates, with a note when a name is ambiguous |
 | `find_care(service, place, max_km, top_n, operator_filter)` | function | | Quality-first ranking within the travel budget, with a `why` (citations), `how` (Quality arithmetic), evidence checklist, labelled quotes, call-to-confirm, nearest-option trade-off, safety line and search notes; `operator_filter => 'public'` for government facilities only |
 
@@ -136,6 +139,10 @@ the service's travel budget, rank by Quality (0–100 = evidence ≤50 + readine
 penalties). If two are within 10 Quality points, the closer one wins. Facilities beyond the budget come next, labelled
 "farther option"; weak (unconfirmed) evidence always comes last. If nothing qualifies in the radius, it is doubled up
 to 300 km. Travel time = straight-line km × 1.4 ÷ 35 km/h.
+
+**How stable is #1?** Every search also re-ranks under 5 named what-if scenarios (only strong evidence counts;
+single-source records ignored; uncertain locations moved to their alternate; travel budget doubled; readiness ignored)
+and reports "Stays #1 in k of 5", naming who would win otherwise. No random sampling.
 
 ```sql
 SELECT * FROM workspace.datathon.find_care('dialysis', 'Jaipur');

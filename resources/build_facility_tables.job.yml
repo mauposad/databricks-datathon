@@ -4,7 +4,7 @@ resources:
       name: build_facility_tables
       description: >
         Rebuilds workspace.datathon: silver PIN geography, silver facilities, gold facility-service evidence,
-        and the find_care() function. Reads only from the Virtue Foundation Marketplace share.
+        the find_care() function and the district planner. Reads only from the Virtue Foundation Marketplace share.
       tasks:
         - task_key: silver_pincode_geo
           notebook_task:
@@ -30,4 +30,11 @@ resources:
             - task_key: gold_facility_services
           notebook_task:
             notebook_path: ../src/04_find_care_function.sql
+            warehouse_id: ${var.warehouse_id}
+
+        - task_key: district_planner
+          depends_on:
+            - task_key: find_care_function
+          notebook_task:
+            notebook_path: ../src/05_district_planner.sql
             warehouse_id: ${var.warehouse_id}

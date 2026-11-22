@@ -1,10 +1,30 @@
 import { useEffect, useRef, useState } from 'react'
 import ScoreBreakdown from './ScoreBreakdown.jsx'
+import * as api from '../api.js'
 
 const CONF_CLASS = { High: 'conf-high', Medium: 'conf-med', Low: 'conf-low', Probable: 'conf-low', Unconfirmed: 'conf-none' }
 // Ranking bands used by find_care: strong/moderate, then probable, then weak
 const tierBand = (t) => (t === 'weak' ? 2 : t === 'probable' ? 1 : 0)
-const WARN_TAGS = ['Single source', 'Possible merged record', 'Not a hospital', 'Has referral mentions', 'Location uncertain', 'Weak evidence', 'Farther option', 'Possible duplicate record', 'Identity not settled']
+// Ask for an optional note, then record a reviewer decision in the verifications overlay.
+async function recordVerification({ facilityId, serviceKey, checkKey, status, label, onVerified }) {
+  const note = window.prompt(`${status === 'confirmed' ? 'Confirm' : 'Reject'}: ${label}\nOptional note (who you spoke to, source):`, '')
+  if (note === null) return
+  try {
+    await api.verify({ facility_id: facilityId, service_key: serviceKey, check_key: checkKey, status, note: note || null })
+    onVerified?.()
+  } catch (e) { alert(`Could not save: ${e.message}`) }
+}
+
+function VerifyButtons({ label, verify }) {
+  return (
+    <span className="verify" onClick={(e) => e.stopPropagation()}>
+      <button className="vbtn ok" title={`Confirm: ${label}`} onClick={() => verify('confirmed')}>✓ Confirm</button>
+      <button className="vbtn no" title={`Reject: ${label}`} onClick={() => verify('rejected')}>✗ Reject</button>
+    </span>
+  )
+}
+
+const WARN_TAGS = ['Reported not available', 'Single source', 'Possible merged record', 'Not a hospital', 'Has referral mentions', 'Location uncertain', 'Weak evidence', 'Farther option', 'Possible duplicate record', 'Identity not settled']
 
 function toRegex(pattern) {
   if (!pattern) return null
@@ -19,18 +39,19 @@ function Highlight({ text, pattern }) {
   return parts.map((p, i) => (i % 2 === 1 && p ? <mark key={i}>{p}</mark> : p))
 }
 
-const CLAIM_LABEL = { direct: 'stated', list_dump: 'department list', hedged: 'guess', third_party: 'other institution', negated: 'negative' }
+const CLAIM_LABEL = { direct: 'stated', list_dump: 'department list', hedged: 'guess', third_party: 'other institution', negated: 'negative', verified: 'reviewer' }
 const CLAIM_HELP = {
   direct: 'A plain statement in the record. Counts fully.',
   list_dump: 'Named only inside a long list of departments. Counts as moderate evidence at most.',
   hedged: 'A guess, e.g. from photos ("appears to be"). Counts as weak evidence only.',
   third_party: 'About another institution, a paper or a partner, not this facility. Not counted.',
   negated: 'A negative or referral-only mention. Not counted.',
+  verified: 'Recorded by a reviewer (e.g. after a phone call). Overrides what the record says for this item.',
 }
 const STATUS_ICON = { found: '✓', unknown: '?', contradicted: '✗' }
 
 // The evidence dimensions for headline services: what the record shows, what it doesn't say, what it contradicts.
-function Checklist({ checks, pattern }) {
+function Checklist({ checks, pattern, verify }) {
   const got = checks.reduce((a, c) => a + c.points, 0)
   const max = checks.reduce((a, c) => a + c.max_points, 0)
   return (
@@ -41,7 +62,8 @@ function Checklist({ checks, pattern }) {
           <li key={c.key} className={`check check-${c.status}`}>
             <span className="icon" aria-label={c.status}>{STATUS_ICON[c.status] || '?'}</span>
             <div>
-              <div>{c.label} <span className="muted small">{c.points}/{c.max_points}</span></div>
+              <div>{c.label} <span className="muted small">{c.points}/{c.max_points}</span>
+                {verify && <VerifyButtons label={c.label} verify={(status) => verify(c.key, status, c.label)} />}</div>
               {c.cited_text
                 ? <div className="small">
                     <span className="field">{c.field?.startsWith('service:') ? 'other service' : c.field}</span>
@@ -129,7 +151,10 @@ function Comparison({ rec, top }) {
   )
 }
 
-export default function ResultCard({ rec, top, selected, onSelect }) {
+export default function ResultCard({ rec, top, selected, onSelect, serviceKey, onVerified }) {
+  const verify = serviceKey
+    ? (checkKey, status, label) => recordVerification({ facilityId: rec.id, serviceKey, checkKey, status, label, onVerified })
+    : null
   const [open, setOpen] = useState(rec.rank === 1)
   const ref = useRef(null)
   useEffect(() => { if (selected) ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }) }, [selected])
@@ -157,6 +182,12 @@ export default function ResultCard({ rec, top, selected, onSelect }) {
         {rec.tags.map((t) => <span key={t} className={WARN_TAGS.includes(t) ? 'tag warn' : 'tag'}>{t}</span>)}
       </div>
 
+      {rec.stability_note && (
+        <div className={`stability ${rec.rank === 1 && rec.stable_first_in < 5 ? 'fragile' : ''}`}>
+          <b>{rec.rank === 1 ? 'How stable is #1?' : 'What if?'}</b> {rec.stability_note}
+        </div>
+      )}
+
       {(rec.tradeoff_note || rec.counterfactual_note) && (
         <div className="tradeoff">
           {rec.tradeoff_note && <p><b>{rec.is_nearest_alternative ? 'Nearest option' : 'Trade-off'}:</b> {rec.tradeoff_note}</p>}
@@ -166,7 +197,12 @@ export default function ResultCard({ rec, top, selected, onSelect }) {
 
       {rec.call_to_confirm && (
         <div className="confirm" onClick={(e) => e.stopPropagation()}>
-          <span><b>Call to confirm:</b> {rec.call_to_confirm}</span>
+          <span><b>Call to confirm:</b> {rec.call_to_confirm}
+            {verify && <span className="verify-service">After calling:{' '}
+              <button className="vbtn ok" onClick={() => verify('service', 'confirmed', 'they offer this service')}>✓ They offer it</button>
+              <button className="vbtn no" onClick={() => verify('service', 'rejected', 'they do not offer this service')}>✗ Not available</button>
+            </span>}
+          </span>
           {rec.phone && <a className="call" href={`tel:${rec.phone.replace(/[^+\d]/g, '')}`}>📞 Call</a>}
         </div>
       )}
@@ -187,7 +223,7 @@ export default function ResultCard({ rec, top, selected, onSelect }) {
         <div className="why" onClick={(e) => e.stopPropagation()}>
           <ScoreBreakdown score={rec.score} confidence={rec.confidence} distanceKm={rec.distance_km} rec={rec} />
 
-          {rec.checks?.length > 0 && <Checklist checks={rec.checks} pattern={rec.match_pattern} />}
+          {rec.checks?.length > 0 && <Checklist checks={rec.checks} pattern={rec.match_pattern} verify={verify} />}
 
           <h5>Evidence from the facility's record <span className="muted">(verbatim, by column)</span></h5>
           {rec.claims?.length > 0 ? (

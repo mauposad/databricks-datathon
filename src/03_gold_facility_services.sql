@@ -687,13 +687,20 @@ q AS (
     -- identity / coherence context from silver (Phase 4)
     sf.record_coherence_score, sf.coh_coords_pin, sf.coh_city, sf.coh_state, sf.coh_located_in, sf.coh_other_facility,
     sf.coh_duplicate, coalesce(sf.identity_conflict, false) AS identity_conflict, sf.identity_conflict_reason,
-    sf.possible_duplicate_names, sf.other_facilities_named
+    sf.possible_duplicate_names, sf.other_facilities_named,
+    -- the other candidate location when coordinates and PIN disagree (> 25 km): used by find_care's stability check
+    sf.alt_lat, sf.alt_lon
   FROM workspace.datathon.gold_facility_services g
   LEFT JOIN sup s USING (facility_id, service_key)
-  LEFT JOIN (SELECT facility_id, record_coherence_score, coh_coords_pin, coh_city, coh_state, coh_located_in,
-                    coh_other_facility, coh_duplicate, identity_conflict, identity_conflict_reason,
-                    possible_duplicate_names, other_facilities_named
-             FROM workspace.datathon.silver_facilities) sf USING (facility_id)
+  LEFT JOIN (SELECT s.facility_id, s.record_coherence_score, s.coh_coords_pin, s.coh_city, s.coh_state, s.coh_located_in,
+                    s.coh_other_facility, s.coh_duplicate, s.identity_conflict, s.identity_conflict_reason,
+                    s.possible_duplicate_names, s.other_facilities_named,
+                    CASE WHEN s.location_source = 'coordinates' AND s.km_coords_to_pin > 25 THEN pg.lat
+                         WHEN s.location_source = 'pin_centroid' THEN s.lat_raw END AS alt_lat,
+                    CASE WHEN s.location_source = 'coordinates' AND s.km_coords_to_pin > 25 THEN pg.lon
+                         WHEN s.location_source = 'pin_centroid' THEN s.lon_raw END AS alt_lon
+             FROM workspace.datathon.silver_facilities s
+             LEFT JOIN workspace.datathon.silver_pincode_geo pg ON pg.pincode = s.pincode) sf USING (facility_id)
 )
 SELECT q.* EXCEPT (caveats),
   concat(caveats, array_compact(array(

@@ -131,6 +131,33 @@ AS t(service_key, travel_budget_min, urgency, rationale);
 
 -- COMMAND ----------
 
+-- Human verifications: an overlay written by the app (Confirm / Reject on a card). Never merged into silver or gold;
+-- find_care reads the latest row per (facility, service, check). check_key = 'service' means the service itself.
+CREATE TABLE IF NOT EXISTS workspace.datathon.verifications (
+  facility_id STRING, service_key STRING, check_key STRING,
+  status STRING COMMENT 'confirmed | rejected',
+  reviewer STRING COMMENT 'from the Databricks Apps X-Forwarded-Email header',
+  ts TIMESTAMP, note STRING, evidence_url STRING)
+COMMENT 'Human verifications overlaid by find_care. Latest row per facility/service/check wins. Never merged into silver/gold.';
+
+-- COMMAND ----------
+
+CREATE OR REPLACE VIEW workspace.datathon.verifications_latest
+COMMENT 'Latest verification per facility, service and check, collected per facility x service (read by find_care)'
+AS
+SELECT facility_id, service_key, collect_list(v) AS verifications,
+       max(CASE WHEN check_key = 'service' THEN v.status END) AS verified_service
+FROM (
+  SELECT facility_id, service_key, check_key,
+         max_by(named_struct('check_key', check_key, 'status', status, 'reviewer', reviewer, 'ts', ts,
+                             'note', note, 'evidence_url', evidence_url), ts) AS v
+  FROM workspace.datathon.verifications
+  GROUP BY facility_id, service_key, check_key
+)
+GROUP BY facility_id, service_key;
+
+-- COMMAND ----------
+
 -- Quality-first ordering with a 10-point distance rule, done greedily: at each position take the best remaining Quality
 -- (within the best remaining band), then pick the CLOSEST facility whose Quality is within 10 points of it.
 -- Returns the first k facility ids in rank order, each with the best remaining Quality (qstar) when it was picked.
@@ -190,7 +217,12 @@ RETURNS TABLE (
   coh_other_facility INT, coh_duplicate INT, identity_conflict BOOLEAN, identity_conflict_reason STRING,
   possible_duplicate_names ARRAY<STRING>,
   -- Phase 5: one concrete fact to confirm by phone
-  call_to_confirm STRING)
+  call_to_confirm STRING,
+  -- Phase 6: human verification overlay and stability across named scenarios
+  verifications ARRAY<STRUCT<check_key: STRING, status: STRING, reviewer: STRING, ts: TIMESTAMP, note: STRING, evidence_url: STRING>>,
+  verified_service STRING, q_verified INT,
+  scenarios_n INT, stable_first_in INT, stability_note STRING,
+  scenario_winners ARRAY<STRUCT<scenario: STRING, winner: STRING>>)
 COMMENT 'Ranked facilities for a service near a place: quality-first within a travel-time budget, with cited evidence (why), score arithmetic (how), trade-offs and uncertainty'
 RETURN
   WITH loc AS (SELECT * FROM workspace.datathon.resolve_location(place)),
@@ -204,16 +236,51 @@ RETURN
        OR array_contains(s.aliases, lower(trim(service)))
     LIMIT 1
   ),
-  allc AS (  -- every facility with evidence for the service within 300 km
+  base AS (  -- every facility with evidence for the service within 300 km
     SELECT g.*, svc.service_label AS svc_label, svc.text_regex AS match_pattern, svc.budget, svc.urgency, svc.rationale,
            loc.label AS loc_label, loc.lat AS origin_lat, loc.lon AS origin_lon, loc.matched_as AS origin_matched_as,
            workspace.datathon.haversine_km(loc.lat, loc.lon, g.lat, g.lon) AS km,
-           g.evidence_tier IN ('strong', 'moderate', 'probable') AS qualifies
+           workspace.datathon.haversine_km(loc.lat, loc.lon, coalesce(g.alt_lat, g.lat), coalesce(g.alt_lon, g.lon)) AS km_alt,
+           coalesce(va.verifications, array()) AS verifications, va.verified_service,
+           -- checklist with human verifications applied: confirmed -> found (full points), rejected -> contradicted
+           transform(g.evidence_checks, c -> CASE
+             WHEN get(filter(va.verifications, x -> x.check_key = c.check_key), 0).status = 'confirmed' THEN
+               named_struct('check_key', c.check_key, 'check_label', c.check_label, 'status', 'found', 'points', c.max_points,
+                            'max_points', c.max_points,
+                            'cited_text', concat('Confirmed by ', get(filter(va.verifications, x -> x.check_key = c.check_key), 0).reviewer,
+                                                 ' on ', date_format(get(filter(va.verifications, x -> x.check_key = c.check_key), 0).ts, 'd MMM yyyy'),
+                                                 coalesce(concat(': ', get(filter(va.verifications, x -> x.check_key = c.check_key), 0).note), '')),
+                            'field', 'verification', 'claim_type', 'verified')
+             WHEN get(filter(va.verifications, x -> x.check_key = c.check_key), 0).status = 'rejected' THEN
+               named_struct('check_key', c.check_key, 'check_label', c.check_label, 'status', 'contradicted', 'points', 0,
+                            'max_points', c.max_points,
+                            'cited_text', concat('Reported not available by ', get(filter(va.verifications, x -> x.check_key = c.check_key), 0).reviewer,
+                                                 ' on ', date_format(get(filter(va.verifications, x -> x.check_key = c.check_key), 0).ts, 'd MMM yyyy'),
+                                                 coalesce(concat(': ', get(filter(va.verifications, x -> x.check_key = c.check_key), 0).note), '')),
+                            'field', 'verification', 'claim_type', 'verified')
+             ELSE c END) AS checks_v
     FROM workspace.datathon.gold_facility_services g
     JOIN svc USING (service_key)
     CROSS JOIN loc
+    LEFT JOIN workspace.datathon.verifications_latest va ON va.facility_id = g.facility_id AND va.service_key = g.service_key
     WHERE g.lat IS NOT NULL AND workspace.datathon.haversine_km(loc.lat, loc.lon, g.lat, g.lon) <= greatest(300, max_km)
       AND (operator_filter IS NULL OR g.operator_type = lower(operator_filter))
+  ),
+  allc AS (  -- verified checks change the evidence points (scaled to the 50-point Quality evidence part)
+    SELECT b.* EXCEPT (evidence_checks, quality_score, q_evidence, checks_found, checks_v),
+           b.checks_v AS evidence_checks,
+           CAST(size(filter(b.checks_v, c -> c.status = 'found')) AS INT) AS checks_found,
+           CAST(round((aggregate(b.checks_v, 0, (acc, c) -> acc + c.points) - aggregate(coalesce(b.evidence_checks, array()), 0, (acc, c) -> acc + c.points)) * 50.0 / 60) AS INT) AS q_verified,
+           least(50, greatest(0, b.q_evidence + CAST(round((aggregate(b.checks_v, 0, (acc, c) -> acc + c.points)
+                   - aggregate(coalesce(b.evidence_checks, array()), 0, (acc, c) -> acc + c.points)) * 50.0 / 60) AS INT))) AS q_evidence,
+           greatest(0, least(100, b.quality_score + CAST(round((aggregate(b.checks_v, 0, (acc, c) -> acc + c.points)
+                   - aggregate(coalesce(b.evidence_checks, array()), 0, (acc, c) -> acc + c.points)) * 50.0 / 60) AS INT))) AS quality_score,
+           -- a reviewer saying the service itself is not available removes it from the qualifying list;
+           -- a reviewer confirming it makes even weak evidence qualify
+           CASE WHEN b.verified_service = 'rejected' THEN false
+                WHEN b.verified_service = 'confirmed' THEN true
+                ELSE b.evidence_tier IN ('strong', 'moderate', 'probable') END AS qualifies
+    FROM base b
   ),
   radius AS (  -- auto-radius: double the search radius (up to 300 km) until a qualifying facility is inside it
     SELECT min(km) FILTER (WHERE qualifies) AS nearest_q_km,
@@ -235,6 +302,36 @@ RETURN
     SELECT workspace.datathon.greedy_rank(collect_list(named_struct(
              'id', facility_id, 'q', CAST(quality_score AS INT), 'km', km, 'band', band)), 100) AS ord
     FROM cand WHERE band < 3
+  ),
+  scen0 AS (  -- named "what if" scenarios: who would be #1 under each (no random sampling)
+    SELECT map_from_entries(collect_list(struct(facility_id, name))) AS names,
+      get(workspace.datathon.greedy_rank(
+          collect_list(named_struct('id', facility_id, 'q', CAST(quality_score AS INT), 'km', km, 'band', CASE WHEN in_budget THEN 1 ELSE 2 END))
+            FILTER (WHERE evidence_tier = 'strong' AND qualifies), 1), 0).id AS w_strong,
+      get(workspace.datathon.greedy_rank(
+          collect_list(named_struct('id', facility_id, 'q', CAST(quality_score AS INT), 'km', km, 'band', band))
+            FILTER (WHERE band < 3 AND n_source_domains > 1), 1), 0).id AS w_multi,
+      get(workspace.datathon.greedy_rank(
+          collect_list(named_struct('id', facility_id, 'q', CAST(quality_score AS INT), 'km', km_alt,
+                                    'band', CASE WHEN km_alt * 1.4 / 35 * 60 <= budget THEN 1 ELSE 2 END))
+            FILTER (WHERE qualifies), 1), 0).id AS w_alt,
+      get(workspace.datathon.greedy_rank(
+          collect_list(named_struct('id', facility_id, 'q', CAST(quality_score AS INT), 'km', km,
+                                    'band', CASE WHEN km * 1.4 / 35 * 60 <= 2 * budget THEN 1 ELSE 2 END))
+            FILTER (WHERE qualifies), 1), 0).id AS w_budget,
+      get(workspace.datathon.greedy_rank(
+          collect_list(named_struct('id', facility_id, 'q', CAST(quality_score - q_readiness AS INT), 'km', km, 'band', band))
+            FILTER (WHERE band < 3), 1), 0).id AS w_noready
+    FROM cand
+  ),
+  scen AS (
+    SELECT names, array(
+      named_struct('scenario', 'Only strong evidence counts', 'winner', w_strong),
+      named_struct('scenario', 'Single-source records ignored', 'winner', w_multi),
+      named_struct('scenario', 'Uncertain locations moved to their alternate', 'winner', w_alt),
+      named_struct('scenario', 'Travel budget doubled', 'winner', w_budget),
+      named_struct('scenario', 'Readiness ignored (evidence and reliability only)', 'winner', w_noready)) AS scenarios
+    FROM scen0
   ),
   ranked AS (
     SELECT c.*,
@@ -281,8 +378,14 @@ RETURN
       (rk.band = 2 AND t.band = 1 AND rk.quality_score >= t.quality_score + 10
        AND rk.facility_id = max_by(rk.facility_id, struct(rk.quality_score, -rk.km)) OVER (PARTITION BY rk.band)) AS is_better_farther,
       t.name AS top_name, t.quality_score AS top_q, t.travel AS top_travel, t.checks_found AS top_cf, t.checks_total AS top_ct,
-      t.evidence_tier AS top_tier, t.support_found AS top_support
-    FROM ranked rk CROSS JOIN top1 t
+      t.evidence_tier AS top_tier, t.support_found AS top_support,
+      size(filter(sc.scenarios, x -> x.winner = rk.facility_id)) AS stable_n,
+      transform(sc.scenarios, x -> named_struct('scenario', x.scenario,
+                                                'winner', coalesce(element_at(sc.names, x.winner), 'no facility qualifies'))) AS scenario_winners,
+      filter(sc.scenarios, x -> x.winner = rk.facility_id) AS won_in,
+      filter(sc.scenarios, x -> x.winner IS DISTINCT FROM rk.facility_id) AS lost_in,
+      sc.names AS names
+    FROM ranked rk CROSS JOIN top1 t CROSS JOIN scen sc
   )
   SELECT
     rnk,
@@ -292,6 +395,7 @@ RETURN
     CAST(trust_score AS INT),
     CAST(quality_score AS DOUBLE),
     concat(
+      CASE WHEN verified_service = 'confirmed' THEN 'CONFIRMED BY A REVIEWER: ' WHEN verified_service = 'rejected' THEN 'REPORTED NOT AVAILABLE BY A REVIEWER: ' ELSE '' END,
       CASE band WHEN 2 THEN 'FARTHER OPTION (beyond the travel budget): ' WHEN 3 THEN 'UNCONFIRMED: ' ELSE '' END,
       CASE WHEN evidence_tier = 'probable' THEN 'PROBABLE (call to confirm): ' ELSE '' END,
       name, ' is ', CAST(round(km, 1) AS STRING), ' km (about ', CAST(travel AS STRING), ' min) from ', loc_label, '. ',
@@ -314,7 +418,11 @@ RETURN
                     CASE WHEN quality_score = qstar THEN '; this is that facility'
                          ELSE concat('; this facility is ', CAST(qstar - quality_score AS STRING), ' points below it but closer, and within 10 points the closer one wins') END,
                     '.') END) AS how,
-    caveats,
+    concat(caveats, array_compact(array(
+      CASE WHEN verified_service = 'rejected' THEN concat('A reviewer reported that ', svc_label, ' is not available here (',
+        get(filter(verifications, x -> x.check_key = 'service'), 0).reviewer, ', ',
+        date_format(get(filter(verifications, x -> x.check_key = 'service'), 0).ts, 'd MMM yyyy'), ').') END,
+      CASE WHEN q_verified <> 0 THEN concat('Reviewer verifications changed the evidence points by ', CAST(q_verified AS STRING), ' Quality points.') END))),
     procedures_cited, capabilities_cited, equipment_cited, description_cited,
     source_urls, district, state, location_confidence,
     official_phone, official_website, facility_id, svc_label, loc_label,
@@ -386,7 +494,17 @@ RETURN
                     THEN ' (or says it is not available)' ELSE '' END, '.')
       WHEN urgency = 'emergency' THEN concat('Ask whether they can handle ', svc_label, ' right now.')
       ELSE concat('Ask whether ', svc_label, ' is available on the day you plan to go, and the cost.')
-    END
+    END,
+    verifications, verified_service, q_verified,
+    size(scenario_winners), CAST(stable_n AS INT),
+    CASE
+      WHEN rnk = 1 THEN concat('Stays #1 in ', CAST(stable_n AS STRING), ' of ', CAST(size(scenario_winners) AS STRING), ' "what if" scenarios',
+        CASE WHEN size(lost_in) > 0 THEN concat('; #1 would change if: ',
+          array_join(transform(lost_in, x -> concat(lower(x.scenario), ' (', coalesce(element_at(names, x.winner), 'no facility qualifies'), ')')), '; '))
+        ELSE '' END, '.')
+      WHEN stable_n > 0 THEN concat('Would be #1 if: ', array_join(transform(won_in, x -> lower(x.scenario)), '; '), '.')
+    END,
+    scenario_winners
   FROM enriched
   WHERE rnk <= top_n OR is_near_alt OR is_better_farther
   ORDER BY rnk;

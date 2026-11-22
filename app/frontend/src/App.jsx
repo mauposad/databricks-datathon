@@ -6,6 +6,7 @@ import VoicePanel from './components/VoicePanel.jsx'
 import ResultCard from './components/ResultCard.jsx'
 import ResultsMap from './components/ResultsMap.jsx'
 import HowWeScore from './components/HowWeScore.jsx'
+import Planner from './components/Planner.jsx'
 
 const MODES = [
   { key: 'form', label: 'Search' },
@@ -14,6 +15,7 @@ const MODES = [
 ]
 
 export default function App() {
+  const [view, setView] = useState('find')        // find | planner
   const [mode, setMode] = useState('form')
   const [services, setServices] = useState([])
   const [places, setPlaces] = useState([])
@@ -32,6 +34,12 @@ export default function App() {
     try { setResult(await api.recommend(q)) } catch (e) { setError(e.message) } finally { setLoading(false) }
   }
 
+  // After a reviewer confirms / rejects something, re-run the same search so the overlay shows.
+  async function refresh() {
+    if (!result?.query) return
+    try { const r = await api.recommend(result.query); setResult({ ...r, chat: result.chat }) } catch (e) { setError(e.message) }
+  }
+
   // Chat and voice hand back a RecommendResponse when they have one.
   function showResult(rec) { if (rec) { setResult(rec); setSelected(null) } }
 
@@ -47,8 +55,13 @@ export default function App() {
             <p>Find Indian healthcare facilities for a specific service, with the evidence behind every recommendation.</p>
           </div>
         </div>
+        <div className="view-switch" role="tablist">
+          <button role="tab" aria-selected={view === 'find'} className={view === 'find' ? 'tab active' : 'tab'} onClick={() => setView('find')}>Find care</button>
+          <button role="tab" aria-selected={view === 'planner'} className={view === 'planner' ? 'tab active' : 'tab'} onClick={() => setView('planner')}>District planner</button>
+        </div>
       </header>
 
+      {view === 'planner' ? <main className="planner-layout"><Planner /></main> : (
       <main className="layout">
         <section className="left">
           <div className="panel input-panel">
@@ -93,7 +106,7 @@ export default function App() {
           <div className="cards">
             {!loading && results.map((r) => (
               <ResultCard key={r.id} rec={r} top={results[0]} selected={selected === r.id}
-                          onSelect={() => setSelected(r.id)} />
+                          onSelect={() => setSelected(r.id)} serviceKey={result.service_key} onVerified={refresh} />
             ))}
           </div>
 
@@ -109,6 +122,7 @@ export default function App() {
           <ResultsMap result={result} selected={selected} onSelect={setSelected} />
         </section>
       </main>
+      )}
     </div>
   )
 }

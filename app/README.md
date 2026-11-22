@@ -1,6 +1,6 @@
 # Care Finder (Databricks App)
 
-React + FastAPI app over `workspace.datathon.find_care`. Plan and status: [`../interface_build_plan.md`](../interface_build_plan.md).
+React + FastAPI app over `workspace.datathon.find_care` (Find care) and `gold_district_access` (District planner). Plan and status: [`../interface_build_plan.md`](../interface_build_plan.md).
 
 ```
 app/
@@ -44,6 +44,8 @@ the principal's application id is on the app's page under **Authorization**):
 ```sql
 GRANT USE CATALOG ON CATALOG workspace TO `<app-sp-application-id>`;
 GRANT USE SCHEMA, SELECT, EXECUTE ON SCHEMA workspace.datathon TO `<app-sp-application-id>`;
+-- reviewer Confirm / Reject buttons write to this overlay table (only this one)
+GRANT MODIFY ON TABLE workspace.datathon.verifications TO `<app-sp-application-id>`;
 ```
 
 ## Adding another model or dataset

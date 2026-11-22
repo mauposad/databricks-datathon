@@ -115,6 +115,9 @@ class Recommendation(BaseModel):
     call_to_confirm: Optional[str] = None       # one fact worth checking by phone
     identity_conflict: bool = False
     coherence: Optional[float] = None           # record coherence score 0-100
+    verified_service: Optional[str] = None      # latest reviewer decision on the service itself: confirmed / rejected
+    stability_note: Optional[str] = None        # "Stays #1 in k of n what-if scenarios ..."
+    stable_first_in: Optional[int] = None
 
 
 class Origin(BaseModel):
@@ -124,9 +127,16 @@ class Origin(BaseModel):
     matched_as: Optional[str] = None
 
 
+class Scenario(BaseModel):
+    scenario: str
+    winner: str
+
+
 class RecommendResponse(BaseModel):
     query: Query
     service_label: Optional[str] = None
+    service_key: Optional[str] = None
+    scenarios: list[Scenario] = []      # who would be #1 under each named what-if scenario
     origin: Origin = Origin()
     results: list[Recommendation] = []
     n_candidates: int = 0
@@ -137,6 +147,15 @@ class RecommendResponse(BaseModel):
     travel_assumption: str = ""
     search_note: Optional[str] = None   # e.g. "search widened to 150 km"
     safety_note: Optional[str] = None   # e.g. "if unstable, go to the nearest 24x7 emergency facility first"
+
+
+class VerifyRequest(BaseModel):
+    facility_id: str
+    service_key: str
+    check_key: str = "service"          # a checklist item, or "service" for the service itself
+    status: str                         # confirmed / rejected
+    note: Optional[str] = None
+    evidence_url: Optional[str] = None
 
 
 class ChatTurn(BaseModel):
