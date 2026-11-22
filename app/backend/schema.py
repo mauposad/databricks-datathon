@@ -49,16 +49,16 @@ class Claim(BaseModel):
 
 
 class LocationCheck(BaseModel):
-    """One of the six location validation checks (notebooks/location_validation_scoring/SCORING_CRITERIA.md)."""
-    key: str                      # pincode / city_state / district_region / circle_division / coordinates / phone
+    """One of the five location validation checks (notebooks/location_validation_scoring/SCORING_CRITERIA.md)."""
+    key: str                      # pincode / city_state / district_region / circle_division / coordinates
     label: str
     kind: str                     # main / secondary
-    status: Optional[str] = None  # pass / fail / missing
+    status: Optional[str] = None  # pass / partial (counts half) / fail / missing
     why: Optional[str] = None     # plain-language reason when it failed
 
 
 class LocationValidation(BaseModel):
-    """How consistent the facility's location claims are with each other. Shown on the card; does not change rank."""
+    """How consistent the facility's location claims are with each other. Shown on the card; feeds q_location."""
     status: str                   # scored / not_scored
     score: Optional[int] = None   # 0-5; pass >= 3 (facilities scoring 0-2 are never returned)
     label: Optional[str] = None   # verified_all / verified_strong / verified_partial

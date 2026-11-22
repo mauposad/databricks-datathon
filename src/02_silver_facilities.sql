@@ -16,7 +16,7 @@
 -- MAGIC | coordinates and PIN code disagree for ~1 in 5 facilities | compare coordinates vs PIN vs city/state text, pick the side with more support, record a confidence |
 -- MAGIC | some records merge several facilities | flag records whose own text places them in another state or district |
 -- MAGIC
--- MAGIC | is the location consistent across pincode, city, district, postal circle, map point and phones? | join `silver_location_validation` (0–5 score per `cluster_id`); no score → flag `location_not_validated` |
+-- MAGIC | is the location consistent across pincode, city, district, postal circle and map point? | join `silver_location_validation` (0–5 score per `cluster_id`); no score → flag `location_not_validated` |
 -- MAGIC
 -- MAGIC Requires notebook 01 (`silver_pincode_geo`, `haversine_km`) and the `location_validation_scoring` job
 -- MAGIC (`bronze_locval_facilities_repaired`, `silver_location_validation` in this schema).
@@ -537,13 +537,13 @@ c AS (
 ),
 lv AS (  -- location validation score per cluster_id (notebooks/location_validation_scoring, SCORING_CRITERIA.md)
   SELECT facility_id, location_validation_score, location_validation_label, location_validation_passed,
-         location_checks, failed_checks AS location_failed_checks, scoring_version AS location_scoring_version
+         location_validation_s, location_checks, failed_checks AS location_failed_checks, scoring_version AS location_scoring_version
   FROM workspace.datathon.silver_location_validation
   WHERE location_validation_status = 'scored'
 )
 SELECT c.* EXCEPT (quality_flags),
   lv.location_validation_score, lv.location_validation_label, lv.location_validation_passed,
-  lv.location_checks, lv.location_failed_checks, lv.location_scoring_version,
+  lv.location_validation_s, lv.location_checks, lv.location_failed_checks, lv.location_scoring_version,
   CASE WHEN lv.facility_id IS NULL THEN 'not_scored' ELSE 'scored' END AS location_validation_status,
   100 + coh_coords_pin + coh_city + coh_state + coh_located_in + coh_other_facility + coh_duplicate AS record_coherence_score,
   (possible_merged_record OR size(possible_duplicate_of) > 0 OR (location_check = 'conflict' AND location_confidence = 'low')) AS identity_conflict,

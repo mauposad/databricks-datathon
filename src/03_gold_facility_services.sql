@@ -32,7 +32,8 @@
 -- MAGIC | `third_party` | affiliation / paper / study / partnership, or names a different hospital | nothing (shown, struck through) |
 -- MAGIC | `negated` | "no", "not", "without", "referred" (benign uses like "no-stitch" or "License No." excluded) | nothing, −10 penalty |
 -- MAGIC
--- MAGIC **Trust score (0–100)** = evidence (≤60) + source corroboration (≤15) + reported scale (≤10) + location confidence (≤15)
+-- MAGIC **Trust score (0–100)** = evidence (≤60) + source corroboration (≤15) + reported scale (≤10) + location (≤15: location validation
+-- MAGIC weighted sum `location_validation_s` × 15; facilities without a location validation score: confidence high 15 · medium 8 · low/none 0)
 -- MAGIC minus penalties (possible merged record −15, clinic claiming hospital-level care −20, negated/referral mentions −10,
 -- MAGIC implausible numbers −5). Every component is stored as its own column so the app can show *how* the score was made.
 -- MAGIC
@@ -243,6 +244,7 @@ claims AS (
     f.facility_id, s.service_key, s.service_label, s.needs_hospital, s.equipment_alone_counts, s.text_regex,
     f.name, f.facility_type, f.operator_type, f.lat, f.lon, f.district, f.state, f.pincode, f.address_text,
     f.location_confidence, f.location_note, f.possible_merged_record, f.far_places_in_text, f.quality_flags,
+    f.location_validation_s,
     f.number_doctors, f.capacity_beds, f.year_established, f.n_source_domains, f.source_urls,
     f.official_phone, f.official_website, f.email, f.facebook_link, f.city_raw, f.scope_family,
     coalesce(m.claims_cited, array()) AS claims_cited,
@@ -301,7 +303,9 @@ tiers AS (
     3 * least(coalesce(n_source_domains, 0), 5)                                   AS pts_sources,
     CASE WHEN number_doctors IS NOT NULL THEN 5 ELSE 0 END
       + CASE WHEN capacity_beds IS NOT NULL THEN 5 ELSE 0 END                     AS pts_scale,
-    CASE location_confidence WHEN 'high' THEN 15 WHEN 'medium' THEN 8 ELSE 0 END  AS pts_location,
+    -- location validation weighted sum (notebooks/location_validation_scoring); unscored facilities keep the old rule
+    CASE WHEN location_validation_s IS NOT NULL THEN CAST(round(15 * location_validation_s) AS INT)
+         WHEN location_confidence = 'high' THEN 15 WHEN location_confidence = 'medium' THEN 8 ELSE 0 END AS pts_location,
     CASE WHEN possible_merged_record THEN -15 ELSE 0 END                          AS pen_merged,
     CASE WHEN needs_hospital AND facility_type IN ('clinic', 'dentist', 'pharmacy', 'doctor') THEN -20 ELSE 0 END AS pen_facility_type,
     CASE WHEN size(negated_hits) > 0 THEN -10 ELSE 0 END                          AS pen_negated,
@@ -617,7 +621,7 @@ FROM pts;
 -- MAGIC | `q_beds` | 10 | 500+ beds 10 · 200+ 8 · 100+ 6 · 50+ 4 · 20+ 2 · 1–19 1 · not reported 0 (teaching hospital with no bed count 8) |
 -- MAGIC | `q_support` | 10 | supporting services relevant to *this* service that the facility has with strong/moderate evidence (`ref_service_support`, e.g. ICU 4 + blood bank 4 + NICU 2 for C-section) |
 -- MAGIC | `q_sources` | 8 | 1.6 per independent source website, up to 5 |
--- MAGIC | `q_location` | 6 | location confidence high 6 · medium 3 · low/none 0 |
+-- MAGIC | `q_location` | 6 | location validation weighted sum `location_validation_s` (0–1) × 6, rounded; facilities without a location validation score fall back to location confidence high 6 · medium 3 · low/none 0 |
 -- MAGIC | `q_coherence` | 6 | `record_coherence_score` (silver, 0–100, named deductions) × 6 / 100 |
 -- MAGIC | `q_penalties` | | the trust-score penalties (possible merged record, clinic for a hospital service, negative mentions, implausible numbers) |
 -- MAGIC
@@ -681,7 +685,8 @@ q AS (
     coalesce(s.support_found, array()) AS support_found,
     coalesce(s.support_considered, array()) AS support_considered,
     CAST(round(1.6 * least(coalesce(n_source_domains, 0), 5)) AS INT) AS q_sources,
-    CASE location_confidence WHEN 'high' THEN 6 WHEN 'medium' THEN 3 ELSE 0 END AS q_location,
+    CASE WHEN sf.location_validation_s IS NOT NULL THEN CAST(round(6 * sf.location_validation_s) AS INT)
+         WHEN location_confidence = 'high' THEN 6 WHEN location_confidence = 'medium' THEN 3 ELSE 0 END AS q_location,
     CAST(round(coalesce(sf.record_coherence_score, 100) * 6.0 / 100) AS INT) AS q_coherence,
     pen_merged + pen_facility_type + pen_negated + pen_numbers AS q_penalties,
     -- identity / coherence context from silver (Phase 4)
@@ -690,15 +695,16 @@ q AS (
     sf.possible_duplicate_names, sf.other_facilities_named,
     -- the other candidate location when coordinates and PIN disagree (> 25 km): used by find_care's stability check
     sf.alt_lat, sf.alt_lon,
-    -- location validation score per cluster (display + find_care gate only; it does not change Quality)
+    -- location validation score per cluster: feeds q_location (Quality) and the find_care gate (scores 0-2 excluded)
     coalesce(sf.location_validation_status, 'not_scored') AS location_validation_status,
-    sf.location_validation_score, sf.location_validation_label, sf.location_checks
+    sf.location_validation_score, sf.location_validation_label, sf.location_checks, sf.location_validation_s
   FROM workspace.datathon.gold_facility_services g
   LEFT JOIN sup s USING (facility_id, service_key)
   LEFT JOIN (SELECT s.facility_id, s.record_coherence_score, s.coh_coords_pin, s.coh_city, s.coh_state, s.coh_located_in,
                     s.coh_other_facility, s.coh_duplicate, s.identity_conflict, s.identity_conflict_reason,
                     s.possible_duplicate_names, s.other_facilities_named,
                     s.location_validation_status, s.location_validation_score, s.location_validation_label, s.location_checks,
+                    s.location_validation_s,
                     CASE WHEN s.location_source = 'coordinates' AND s.km_coords_to_pin > 25 THEN pg.lat
                          WHEN s.location_source = 'pin_centroid' THEN s.lat_raw END AS alt_lat,
                     CASE WHEN s.location_source = 'coordinates' AND s.km_coords_to_pin > 25 THEN pg.lon
