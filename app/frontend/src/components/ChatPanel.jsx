@@ -68,7 +68,11 @@ export default function ChatPanel({ onResult, voiceFirst = false }) {
                   aria-label={listening ? 'Stop listening' : 'Start talking'}>
             <Icon name={listening ? 'stop' : 'mic'} size="xl" />
           </button>
-          <div className="muted">{!canListen ? 'Voice input needs Chrome, Edge or Safari.' : listening ? (input || 'Listening…') : 'Tap and say what you need and where.'}</div>
+          <div className="muted" aria-live="polite">
+            {!canListen ? 'Voice input needs Chrome, Edge or Safari.'
+              : listening ? <><span className="rec-dot" aria-hidden />{input || 'Listening'}</>
+              : 'Tap and say what you need and where.'}
+          </div>
         </div>
       ) : (
         <form className="chat-input" onSubmit={(e) => { e.preventDefault(); send(input) }}>

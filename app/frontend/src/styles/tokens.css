@@ -35,7 +35,7 @@
   --map-pin-text: #ffffff;
   --map-pin-ring: #ffffff;
   --map-origin: #16191f;
-  --map-radius: #1d5bd8;
+  --map-radius: #2b313c;   /* the search circle is not a selection, so it stays neutral */
 
   /* ---- Space ---- */
   --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px; --s-6: 32px; --s-7: 48px;
@@ -111,7 +111,7 @@
     --map-pin-text: #0f1115;
     --map-pin-ring: #0f1115;
     --map-origin: #e7e9ee;
-    --map-radius: #7aa5ff;
+    --map-radius: #a3acbb;
 
     --shadow-pop: 0 8px 24px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .4);
   }

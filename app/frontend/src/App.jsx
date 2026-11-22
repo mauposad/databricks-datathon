@@ -3,12 +3,14 @@ import * as api from './api.js'
 import SearchForm from './components/SearchForm.jsx'
 import ChatPanel from './components/ChatPanel.jsx'
 import VoicePanel from './components/VoicePanel.jsx'
-import ResultCard from './components/ResultCard.jsx'
+import ResultHero from './components/ResultHero.jsx'
+import ResultRow from './components/ResultRow.jsx'
 import ResultsMap from './components/ResultsMap.jsx'
 import HowWeScore from './components/HowWeScore.jsx'
 import Planner from './components/Planner.jsx'
 import Icon from './components/Icon.jsx'
-import { Skeleton, Tabs } from './components/ui/index.js'
+import { Button, Skeleton, Tabs } from './components/ui/index.js'
+import { recordVerification } from './components/result/shared.js'
 
 const MODES = [
   { key: 'form', label: 'Search' },
@@ -19,6 +21,18 @@ const VIEWS = [
   { key: 'find', label: 'Find care' },
   { key: 'planner', label: 'District planner' },
 ]
+const MAX_KM = 300
+
+// "Dialysis" -> "dialysis", but keep "NICU" and "MRI" as they are.
+const lowerFirst = (s) => (s && s.length > 1 && s[1] === s[1].toLowerCase() ? s[0].toLowerCase() + s.slice(1) : s)
+
+function headline(result, n) {
+  const what = lowerFirst(result.service_label || result.query.service)
+  const where = result.origin?.label || result.query.place
+  const km = result.query.max_km
+  if (n === 0) return `No ${what} options within ${km} km of ${where}`
+  return `${n} ${what} option${n === 1 ? '' : 's'} within ${km} km of ${where}`
+}
 
 export default function App() {
   const [view, setView] = useState('find')        // find | planner
@@ -50,16 +64,18 @@ export default function App() {
   function showResult(rec) { if (rec) { setResult(rec); setSelected(null) } }
 
   const results = result?.results || []
+  const nMain = results.filter((r) => !r.is_nearest_alternative).length
+  const verifyFor = (rec) => (result?.service_key
+    ? (checkKey, status, label) => recordVerification({ facilityId: rec.id, serviceKey: result.service_key, checkKey, status, label, onVerified: refresh })
+    : null)
+  const widerKm = result && Math.min(MAX_KM, result.query.max_km * 2)
 
   return (
     <div className="app">
       <header className="topbar">
         <div className="brand">
           <Icon name="logo" size="md" className="logo" />
-          <div>
-            <h1>Care Finder</h1>
-            <p>Find the right hospital for the care you need, and see why we recommend it.</p>
-          </div>
+          <h1>Care Finder</h1>
         </div>
         <Tabs items={VIEWS} value={view} onChange={setView} label="View" className="view-switch" />
       </header>
@@ -74,24 +90,21 @@ export default function App() {
             {mode === 'voice' && <VoicePanel onResult={showResult} />}
           </div>
 
-          {error && <div className="alert error">{error}</div>}
+          {error && <div className="alert error" role="alert"><Icon name="alert" /><span>{error}</span></div>}
 
           {result?.safety_note && (
             <div className="alert safety" role="alert">
-              <Icon name="warning" size="md" />
+              <Icon name="warning" />
               <div><b>Emergency?</b> {result.safety_note}</div>
             </div>
           )}
 
-          {result && (
+          {result && !loading && (
             <div className="summary">
-              <h2>
-                {results.length > 0 ? `${results.filter((r) => !r.is_nearest_alternative).length} best options` : 'No matches'} for{' '}
-                {result.service_label || result.query.service}
-              </h2>
-              <p className="muted">
-                Near {result.origin?.label || result.query.place} · within {result.query.max_km} km
-                {result.query.public_only ? ' · government facilities only' : ''} · {result.n_candidates} facilities checked
+              <h2>{headline(result, nMain)}</h2>
+              <p className="muted num">
+                {result.n_candidates} facilities checked
+                {result.query.public_only ? ' · government facilities only' : ''}
               </p>
               {result.chat && (
                 <p className="muted small">
@@ -99,19 +112,32 @@ export default function App() {
                   {' '}reply {result.chat.reply_source === 'llm' ? 'worded by the AI model and checked against these results' : 'from a fixed template'}.
                 </p>
               )}
-              <HowWeScore method={result.method} rule={results[0]?.confidence.rule} />
+              <div className="summary-actions">
+                {results.length === 0 && result.query.max_km < MAX_KM && (
+                  <Button onClick={() => runSearch({ ...result.query, max_km: widerKm })}>Search up to {widerKm} km</Button>
+                )}
+                <HowWeScore method={result.method} rule={results[0]?.confidence.rule} />
+              </div>
             </div>
           )}
           {result?.notes?.map((n) => <div key={n} className="alert note">{n}</div>)}
 
-          {loading && <div className="skeletons">{[0, 1, 2].map((i) => <Skeleton key={i} height={200} radius="var(--r-lg)" />)}</div>}
+          {loading && <div className="skeletons">{[0, 1, 2].map((i) => <Skeleton key={i} height={i ? 64 : 280} radius="var(--r-lg)" />)}</div>}
 
-          <div className="cards">
-            {!loading && results.map((r) => (
-              <ResultCard key={r.id} rec={r} top={results[0]} selected={selected === r.id}
-                          onSelect={() => setSelected(r.id)} serviceKey={result.service_key} onVerified={refresh} />
-            ))}
-          </div>
+          {!loading && results.length > 0 && (
+            <div className="cards">
+              <ResultHero rec={results[0]} top={results[0]} selected={selected === results[0].id}
+                          onSelect={() => setSelected(results[0].id)} verify={verifyFor(results[0])} />
+              {results.length > 1 && (
+                <div className="rows">
+                  {results.slice(1).map((r) => (
+                    <ResultRow key={r.id} rec={r} top={results[0]} selected={selected === r.id}
+                               onSelect={() => setSelected(r.id)} verify={verifyFor(r)} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {!result && !loading && (
             <div className="empty">

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as api from '../api.js'
-import { Select } from './ui/index.js'
+import { Button, Popover, Select } from './ui/index.js'
 
 const SERVICES = [
   ['emergency_csection', 'Emergency C-section'], ['nicu', 'NICU'], ['dialysis', 'Dialysis'], ['trauma', 'Trauma'],
@@ -38,17 +38,25 @@ export default function Planner() {
 
   const ind = INDICATORS[service] || []
   const budget = rows[0]?.travel_budget_min
+  const label = SERVICES.find(([k]) => k === service)?.[1]
   const gaps = useMemo(() => rows.filter((r) => !r.quality_within_budget).length, [rows])
 
   return (
     <div className="panel planner">
       <div className="planner-head">
-        <div>
-          <h2>District planner</h2>
+        <div className="planner-title">
+          <h2>{loading && !rows.length ? 'Districts with no quality facility in reach'
+            : <><span className="num">{gaps}</span> of <span className="num">{rows.length}</span> districts have no quality facility in reach</>}</h2>
           <p className="muted small">
-            Travel time from each district centre to the nearest <b>quality facility</b> (strong or moderate evidence and
-            Quality ≥ 70) and to the nearest facility with any confirmed or probable evidence, next to NFHS-5 indicators.
-            Travel time = km × 1.4 ÷ 35 km/h. A gap means <b>no facility documented in this dataset</b>, not that none exists.
+            {label} · {budget ? `${budget}-minute travel budget · ` : ''}worst access first.{' '}
+            <Popover label="How this works" trigger={<Button variant="ghost" size="sm" icon="info" className="inline-link">How this works</Button>}>
+              <div className="popover-body">
+                <p>Travel time from each district centre to the nearest <b>quality facility</b> (strong or moderate evidence and
+                  Quality ≥ 70) and to the nearest facility with any confirmed or probable evidence, next to NFHS-5 indicators.</p>
+                <p>Travel time = km × 1.4 ÷ 35 km/h.</p>
+                <p>A gap means <b>no facility documented in this dataset</b>, not that none exists.</p>
+              </div>
+            </Popover>
           </p>
         </div>
         <div className="planner-controls">
@@ -59,10 +67,6 @@ export default function Planner() {
         </div>
       </div>
       {error && <div className="alert error">{error}</div>}
-      {!loading && rows.length > 0 && (
-        <p className="small"><b className="num">{gaps}</b> of {rows.length} districts have no documented quality facility within the
-          {' '}{budget}-minute travel budget for this service. Worst access first.</p>
-      )}
       {loading ? <div className="skeleton" /> : (
         <div className="table-wrap">
           <table className="planner-table">

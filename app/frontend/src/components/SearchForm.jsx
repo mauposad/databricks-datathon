@@ -32,14 +32,12 @@ export default function SearchForm({ services, places, loading, onSearch }) {
     <form className="search-form" onSubmit={submit}>
       <div className="form-grid">
         <div className="form-field">
-          <label htmlFor="sf-service">Care needed</label>
           <Select id="sf-service" value={service} onValueChange={setService} label="Care needed"
                   placeholder="Choose a service" options={services.map((s) => ({ value: s.key, label: s.label }))} />
         </div>
 
         <div className="form-field">
-          {/* cmdk sets its own input id, so the field is named by aria-label instead of htmlFor. */}
-          <span className="field-label" aria-hidden>Your location</span>
+          {/* The placeholder says what goes here; screen readers get the name from aria-label. */}
           <Combobox value={place} onChange={setPlace} options={places} label="Your location"
                     placeholder="PIN code, city, village or district" onEnter={submit}
                     trailing={
