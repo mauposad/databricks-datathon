@@ -138,5 +138,21 @@ export const SAMPLE_SERVICES = [
   { key: 'trauma', label: 'Trauma', aliases: [] },
   { key: 'cardiac_surgery', label: 'Cardiac surgery', aliases: [] },
   { key: 'mri', label: 'MRI', aliases: [] },
+  { key: 'ct_scan', label: 'CT scan', aliases: [] },
+]
+export const SAMPLE_GROUPS = [
+  { key: 'maternity', label: 'Pregnancy & childbirth', description: 'Delivery, high-risk pregnancy and C-section',
+    services: ['emergency_csection'], default_service: 'emergency_csection', refine_question: null,
+    terms: [{ term: 'childbirth', service: null }, { term: 'labour', service: null }, { term: 'prasav', service: null }] },
+  { key: 'child', label: 'Newborn & child care', description: 'Newborn intensive care', services: ['nicu'],
+    default_service: 'nicu', refine_question: null, terms: [{ term: 'premature baby', service: 'nicu' }] },
+  { key: 'heart', label: 'Heart care', description: 'Heart surgery', services: ['cardiac_surgery'],
+    default_service: 'cardiac_surgery', refine_question: null, terms: [{ term: 'chest pain', service: 'cardiac_surgery' }] },
+  { key: 'kidney', label: 'Kidney care & dialysis', description: 'Dialysis for kidney failure', services: ['dialysis'],
+    default_service: 'dialysis', refine_question: null, terms: [{ term: 'kidney failure', service: 'dialysis' }] },
+  { key: 'emergency', label: 'Emergency & accidents', description: 'Accidents and injuries', services: ['trauma'],
+    default_service: 'trauma', refine_question: null, terms: [{ term: 'accident', service: 'trauma' }] },
+  { key: 'imaging', label: 'Scans & imaging', description: 'MRI and CT scans', services: ['mri', 'ct_scan'],
+    default_service: null, refine_question: 'Which scan do you need: MRI or CT?', terms: [{ term: 'scan', service: null }] },
 ]
 export const SAMPLE_PLACES = ['Jaipur', 'Jaipur Rural', 'Jaisalmer', 'Patna', 'Lucknow', '226001', '302006', 'Pune', 'Bengaluru']

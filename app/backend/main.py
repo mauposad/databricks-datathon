@@ -10,9 +10,9 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import chat, config, sql, warmup
+from . import chat, config, sql, terms, warmup
 from .adapters import get_adapter
-from .schema import ChatRequest, ChatResponse, Query, RecommendResponse, Service, VerifyRequest
+from .schema import ChatRequest, ChatResponse, Query, RecommendResponse, Service, ServiceGroup, VerifyRequest
 
 logging.basicConfig(level=logging.INFO)
 
@@ -43,6 +43,12 @@ def services():
     return get_adapter().services()
 
 
+@app.get("/api/service-groups", response_model=list[ServiceGroup])
+def service_groups():
+    """Broad care groups ("Pregnancy & childbirth") over the services, with everyday terms for type-ahead."""
+    return get_adapter().service_groups()
+
+
 @app.get("/api/places", response_model=list[str])
 def places():
     return get_adapter().places()
@@ -54,7 +60,20 @@ def recommend(q: Query):
         raise HTTPException(400, "service and place are required")
     q.top_n = max(1, min(q.top_n, 20))
     q.max_km = max(1, min(q.max_km, 1000))
-    return get_adapter().recommend(q)
+    adapter = get_adapter()
+    services = adapter.services()
+    note = None
+    if q.service not in {s.key for s in services}:  # a group key or everyday words ("childbirth", "chest pain")
+        groups = adapter.service_groups()
+        res = terms.resolve_text(q.service, services, groups)
+        if res.service:
+            q.service, note = res.service, terms.default_note(res, services)
+        elif res.ask:
+            raise HTTPException(400, res.ask)
+    resp = adapter.recommend(q)
+    if note:
+        resp.notes.insert(0, note)
+    return resp
 
 
 @app.post("/api/chat", response_model=ChatResponse)

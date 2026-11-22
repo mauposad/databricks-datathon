@@ -3,7 +3,7 @@
 //   VITE_MOCK=slow   same, 4 s delay (to look at loading states)
 //   VITE_MOCK=empty  searches return no results
 //   VITE_MOCK=fail   every search fails
-import { SAMPLE_PLACES, SAMPLE_RESPONSE, SAMPLE_SERVICES } from './fixtures/sampleRecommendation.js'
+import { SAMPLE_GROUPS, SAMPLE_PLACES, SAMPLE_RESPONSE, SAMPLE_SERVICES } from './fixtures/sampleRecommendation.js'
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 const verified = {}
@@ -25,6 +25,7 @@ export async function handle(path, opts, mode) {
   window.__mockCalls = [...(window.__mockCalls || []), { path, body }]  // read by UI regression scripts
   if (path === '/api/warmup') return { started: false }
   if (path === '/api/services') return SAMPLE_SERVICES
+  if (path === '/api/service-groups') return SAMPLE_GROUPS
   if (path === '/api/places') return SAMPLE_PLACES
   if (path.startsWith('/api/planner')) {
     const service = new URL(path, 'http://x').searchParams.get('service')

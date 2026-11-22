@@ -7,7 +7,7 @@ import { canListen, canSpeak, listen, speak, stopSpeaking } from '../speech.js'
 import Icon from './Icon.jsx'
 import { Button, Switch } from './ui/index.js'
 
-const GREETING = { role: 'assistant', content: 'Tell me what care you need and where. For example: "My father needs dialysis, we are in Jaipur".' }
+const GREETING = { role: 'assistant', content: 'Tell me what care you need and where, in your own words. For example: "My wife is in labour, we are near Patna" or "chest pain in Jaipur".' }
 
 export default function ChatPanel({ onResult, voiceFirst = false }) {
   const [messages, setMessages] = useState([GREETING])
@@ -90,7 +90,7 @@ export default function ChatPanel({ onResult, voiceFirst = false }) {
           <div className="muted" aria-live="polite">
             {!canListen ? 'Voice input needs Chrome, Edge or Safari.'
               : listening ? <><span className="rec-dot" aria-hidden />{input || 'Listening'}</>
-              : 'Tap and say what you need and where.'}
+              : 'Tap and say what you need and where, e.g. "my child has a fever, we are in Lucknow".'}
           </div>
         </div>
       ) : (
@@ -102,7 +102,7 @@ export default function ChatPanel({ onResult, voiceFirst = false }) {
             </button>
           )}
           <input className="field" value={input} onChange={(e) => setInput(e.target.value)} aria-label="Message"
-                 placeholder="e.g. NICU near Patna within 100 km" />
+                 placeholder="e.g. child doctor near Patna, or toothache in 302001" />
           <Button type="submit" variant="primary" icon="send" loading={busy} disabled={busy || !input.trim()}>Send</Button>
         </form>
       )}

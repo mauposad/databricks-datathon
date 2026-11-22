@@ -30,8 +30,8 @@ const MAX_KM = 300
 const DEMO = { service: 'dialysis', place: 'Jaipur', max_km: 75, top_n: 5, public_only: false }
 // Example searches shown as pins before the first search (the same three as the form's "Try" buttons).
 const EXAMPLE_PINS = [
-  { label: 'Dialysis · Jaipur', lat: 26.9124, lon: 75.7873, dir: 'left', q: DEMO },
-  { label: 'Emergency C-section · 226001', lat: 26.8467, lon: 80.9462, dir: 'top', q: { ...DEMO, service: 'emergency_csection', place: '226001' } },
+  { label: 'Kidney care & dialysis · Jaipur', lat: 26.9124, lon: 75.7873, dir: 'left', q: DEMO },
+  { label: 'Pregnancy & childbirth · 226001', lat: 26.8467, lon: 80.9462, dir: 'top', q: { ...DEMO, service: 'high_risk_delivery', place: '226001' } },
   { label: 'NICU · Patna', lat: 25.5941, lon: 85.1376, dir: 'right', q: { ...DEMO, service: 'nicu', place: 'Patna' } },
 ]
 
@@ -53,6 +53,7 @@ export default function App() {
   const [view, setView] = useState('find')        // find | planner
   const [mode, setMode] = useState('form')
   const [services, setServices] = useState([])
+  const [groups, setGroups] = useState([])
   const [places, setPlaces] = useState([])
   const [servicesLoading, setServicesLoading] = useState(true)
   const [placesLoading, setPlacesLoading] = useState(true)
@@ -67,7 +68,8 @@ export default function App() {
 
   function loadServices() {
     setServicesLoading(true); setError(null)
-    api.getServices().then(setServices)
+    Promise.all([api.getServices(), api.getServiceGroups()])
+      .then(([svc, grp]) => { setServices(svc); setGroups(Array.isArray(grp) ? grp : []) })
       .catch((e) => setError({ text: 'We could not load the list of care types.', detail: e.message, retry: loadServices }))
       .finally(() => setServicesLoading(false))
   }
@@ -127,7 +129,7 @@ export default function App() {
             {/* M16: the old panel leaves while the new one enters */}
             <AnimatePresence mode="popLayout" initial={false}>
               <motion.div key={mode} {...p.fade}>
-                {mode === 'form' && <SearchForm services={services} places={places} servicesLoading={servicesLoading}
+                {mode === 'form' && <SearchForm services={services} groups={groups} places={places} servicesLoading={servicesLoading}
                                                 placesLoading={placesLoading} loading={loading} onSearch={runSearch} />}
                 {mode === 'chat' && <ChatPanel onResult={showResult} />}
                 {mode === 'voice' && <VoicePanel onResult={showResult} />}

@@ -132,7 +132,14 @@ AS SELECT * FROM VALUES
   ('cardiac_surgery',    240, 'planned',   'usually planned; quality matters more than distance'),
   ('oncology',           240, 'planned',   'planned treatment; quality matters more than distance'),
   ('orthopedic_surgery', 180, 'planned',   'usually planned'),
-  ('cataract',           180, 'planned',   'planned day surgery')
+  ('cataract',           180, 'planned',   'planned day surgery'),
+  ('physiotherapy',      45,  'recurring', 'therapy sessions repeat several times a week, so the trip must be short'),
+  ('mental_health',      120, 'planned',   'usually scheduled; a trusted specialist is worth some travel'),
+  ('paediatrics',        60,  'urgent',    'sick children should be seen the same day'),
+  ('dental',             60,  'planned',   'usually scheduled, often over several visits'),
+  ('ent',                90,  'planned',   'usually scheduled'),
+  ('dermatology',        90,  'planned',   'usually scheduled'),
+  ('general_medicine',   45,  'urgent',    'everyday care should be close to home')
 AS t(service_key, travel_budget_min, urgency, rationale);
 
 -- COMMAND ----------
