@@ -54,8 +54,8 @@ export default function ResultsMap({ result, selected, onSelect }) {
                   eventHandlers={{ click: () => onSelect(r.id) }} zIndexOffset={r.id === selected ? 1000 : 0}>
             <Popup>
               <strong>{r.rank}. {r.name}</strong><br />
-              {r.confidence.label} confidence · {r.distance_km} km<br />
-              <span style={{ color: '#666' }}>{r.evidence[0]?.text?.slice(0, 100)}</span>
+              {r.travel_min != null ? `~${r.travel_min} min · ` : ''}{r.distance_km} km<br />
+              <span style={{ color: '#666' }}>{r.confidence.label === 'Probable' ? 'Likely · call to confirm' : `${r.confidence.label} confidence`}</span>
             </Popup>
           </Marker>
         ))}
@@ -64,9 +64,9 @@ export default function ResultsMap({ result, selected, onSelect }) {
       </MapContainer>
       {result && (
         <div className="map-legend">
-          <span><span className="origin-pin inline" /> search point</span>
-          <span><span className="pin inline">1</span> ranked facility</span>
-          <span>circle = {result.query.max_km} km radius</span>
+          <span><span className="origin-pin inline" /> You searched here</span>
+          <span><span className="pin inline">1</span> Ranked option</span>
+          <span>Circle: {result.query.max_km} km</span>
         </div>
       )}
     </div>

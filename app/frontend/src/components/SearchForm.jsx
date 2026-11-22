@@ -28,8 +28,9 @@ export default function SearchForm({ services, places, loading, onSearch }) {
 
   return (
     <form className="search-form" onSubmit={submit}>
+      <div className="form-grid">
       <label>
-        <span>Service</span>
+        <span>Care needed</span>
         <select value={service} onChange={(e) => setService(e.target.value)} required>
           <option value="">Choose a service…</option>
           {services.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
@@ -37,24 +38,27 @@ export default function SearchForm({ services, places, loading, onSearch }) {
       </label>
 
       <label>
-        <span>Location</span>
+        <span>Your location</span>
         <div className="row">
           <input list="places" value={place} onChange={(e) => setPlace(e.target.value)}
-                 placeholder="PIN code, city, village, district, or lat,lon" required />
+                 placeholder="PIN code, city, village or district" required />
           <button type="button" className="ghost" onClick={useMyLocation} title="Use my location">📍</button>
         </div>
         <datalist id="places">{places.map((p) => <option key={p} value={p} />)}</datalist>
       </label>
+      </div>
 
-      <label>
-        <span>Search radius: <strong>{maxKm} km</strong></span>
-        <input type="range" min="10" max="300" step="5" value={maxKm} onChange={(e) => setMaxKm(+e.target.value)} />
-      </label>
+      <div className="form-grid">
+        <label>
+          <span>Search radius: <strong>{maxKm} km</strong></span>
+          <input type="range" min="10" max="300" step="5" value={maxKm} onChange={(e) => setMaxKm(+e.target.value)} />
+        </label>
 
-      <label className="inline-check">
-        <input type="checkbox" checked={publicOnly} onChange={(e) => setPublicOnly(e.target.checked)} />
-        <span>Government (public) facilities only</span>
-      </label>
+        <label className="inline-check">
+          <input type="checkbox" checked={publicOnly} onChange={(e) => setPublicOnly(e.target.checked)} />
+          <span>Government facilities only</span>
+        </label>
+      </div>
 
       <button className="primary" disabled={loading || !service || !place.trim()}>
         {loading ? 'Searching…' : 'Find facilities'}

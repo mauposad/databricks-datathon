@@ -52,7 +52,7 @@ export default function App() {
           <span className="logo" aria-hidden>✚</span>
           <div>
             <h1>Care Finder</h1>
-            <p>Find Indian healthcare facilities for a specific service, with the evidence behind every recommendation.</p>
+            <p>Find the right hospital for the care you need, and see why we recommend it.</p>
           </div>
         </div>
         <div className="view-switch" role="tablist">
@@ -80,25 +80,32 @@ export default function App() {
 
           {error && <div className="alert error">{error}</div>}
 
+          {result?.safety_note && (
+            <div className="alert safety" role="alert">
+              <span className="alert-icon" aria-hidden>⚠</span>
+              <div><b>Emergency?</b> {result.safety_note}</div>
+            </div>
+          )}
+
           {result && (
             <div className="summary">
+              <h2>
+                {results.length > 0 ? `${results.filter((r) => !r.is_nearest_alternative).length} best options` : 'No matches'} for{' '}
+                {result.service_label || result.query.service}
+              </h2>
+              <p className="muted">
+                Near {result.origin?.label || result.query.place} · within {result.query.max_km} km
+                {result.query.public_only ? ' · government facilities only' : ''} · {result.n_candidates} facilities checked
+              </p>
               {result.chat && (
-                <div className="understood">
-                  Searching: <b>{result.service_label || result.query.service}</b> near <b>{result.query.place}</b>,
-                  {' '}{result.query.max_km} km{result.query.public_only ? ', government facilities only' : ''}
-                  <span className="muted"> (understood {result.chat.parsed_by === 'llm' ? 'by the AI model' : 'by keyword matching'};
-                  {' '}reply {result.chat.reply_source === 'llm' ? 'worded by the AI model and checked against these results' : `from a fixed template${result.chat.reply_source?.startsWith('template (') ? ': ' + result.chat.reply_source.slice(10, -1) : ''}`})</span>
-                </div>
+                <p className="muted small">
+                  Understood {result.chat.parsed_by === 'llm' ? 'by the AI model' : 'by keyword matching'};
+                  {' '}reply {result.chat.reply_source === 'llm' ? 'worded by the AI model and checked against these results' : 'from a fixed template'}.
+                </p>
               )}
-              <div>
-                <strong>{result.service_label || result.query.service}</strong> near{' '}
-                <strong>{result.origin?.label || result.query.place}</strong>
-                <span className="muted"> · within {result.query.max_km} km{result.query.public_only ? ' · government facilities only' : ''} · {result.n_candidates} facilities with evidence in range</span>
-              </div>
               <HowWeScore method={result.method} rule={results[0]?.confidence.rule} />
             </div>
           )}
-          {result?.safety_note && <div className="alert safety" role="alert">⚠ {result.safety_note}</div>}
           {result?.notes?.map((n) => <div key={n} className="alert note">{n}</div>)}
 
           {loading && <div className="skeletons">{[0, 1, 2].map((i) => <div key={i} className="skeleton" />)}</div>}
@@ -112,8 +119,8 @@ export default function App() {
 
           {!result && !loading && (
             <div className="empty">
-              <p>Pick a service and a place to get the top 5 facilities.</p>
-              <p className="muted">Every result shows the exact text from the facility's record that supports it, how the score was calculated, and what we are unsure about.</p>
+              <p><b>Choose the care you need and where you are.</b></p>
+              <p className="muted">We'll show the 5 best nearby options, how long it takes to get there, and what to ask when you call.</p>
             </div>
           )}
         </section>
