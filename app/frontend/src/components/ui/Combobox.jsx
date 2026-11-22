@@ -7,7 +7,7 @@ const LIMIT = 50
 
 // Free-text input with suggestions. The user can type any value (a PIN code, a "lat,lon"), or pick one.
 // Enter picks the highlighted suggestion; with no list open it submits the form.
-export default function Combobox({ value, onChange, options, placeholder, label, loading, trailing, onEnter }) {
+export default function Combobox({ value, onChange, options, placeholder, label, loading, trailing, onEnter, invalid, describedBy }) {
   const [open, setOpen] = useState(false)
   const matches = useMemo(() => {
     const q = value.trim().toLowerCase()
@@ -33,8 +33,9 @@ export default function Combobox({ value, onChange, options, placeholder, label,
     <P.Root open={show} onOpenChange={setOpen}>
       <Command shouldFilter={false} loop label={label} className="combobox" onKeyDown={onKeyDown}>
         <P.Anchor asChild>
-          <div className="field field-group">
+          <div className={`field field-group ${invalid ? 'is-invalid' : ''}`}>
             <Command.Input value={value} placeholder={placeholder} aria-label={label}
+                           aria-invalid={invalid || undefined} aria-describedby={describedBy}
                            onValueChange={(v) => { onChange(v); setOpen(true) }}
                            onFocus={() => setOpen(true)} onBlur={() => setOpen(false)} />
             {loading && <span className="field-status" aria-label="Loading places"><Icon name="spinner" className="spin" /></span>}

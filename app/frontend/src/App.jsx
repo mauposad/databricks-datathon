@@ -9,8 +9,10 @@ import ResultsMap from './components/ResultsMap.jsx'
 import HowWeScore from './components/HowWeScore.jsx'
 import Planner from './components/Planner.jsx'
 import Icon from './components/Icon.jsx'
-import { Button, Skeleton, Tabs } from './components/ui/index.js'
-import { recordVerification } from './components/result/shared.js'
+import ResultsSkeleton from './components/ResultsSkeleton.jsx'
+import { Button, Tabs } from './components/ui/index.js'
+import { saveVerification } from './components/result/shared.js'
+import { SAMPLE_RESULTS } from './fixtures/sampleRecommendation.js'
 
 const MODES = [
   { key: 'form', label: 'Search' },
@@ -22,6 +24,13 @@ const VIEWS = [
   { key: 'planner', label: 'District planner' },
 ]
 const MAX_KM = 300
+const DEMO = { service: 'dialysis', place: 'Jaipur', max_km: 75, top_n: 5, public_only: false }
+// Example searches shown as pins before the first search (the same three as the form's "Try" buttons).
+const EXAMPLE_PINS = [
+  { label: 'Dialysis · Jaipur', lat: 26.9124, lon: 75.7873, dir: 'left', q: DEMO },
+  { label: 'Emergency C-section · 226001', lat: 26.8467, lon: 80.9462, dir: 'top', q: { ...DEMO, service: 'emergency_csection', place: '226001' } },
+  { label: 'NICU · Patna', lat: 25.5941, lon: 85.1376, dir: 'right', q: { ...DEMO, service: 'nicu', place: 'Patna' } },
+]
 
 // "Dialysis" -> "dialysis", but keep "NICU" and "MRI" as they are.
 const lowerFirst = (s) => (s && s.length > 1 && s[1] === s[1].toLowerCase() ? s[0].toLowerCase() + s.slice(1) : s)
@@ -39,25 +48,40 @@ export default function App() {
   const [mode, setMode] = useState('form')
   const [services, setServices] = useState([])
   const [places, setPlaces] = useState([])
+  const [servicesLoading, setServicesLoading] = useState(true)
+  const [placesLoading, setPlacesLoading] = useState(true)
   const [result, setResult] = useState(null)      // RecommendResponse
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState(null)        // { text, detail, retry }
   const [selected, setSelected] = useState(null)  // facility id
 
+  function loadServices() {
+    setServicesLoading(true); setError(null)
+    api.getServices().then(setServices)
+      .catch((e) => setError({ text: 'We could not load the list of care types.', detail: e.message, retry: loadServices }))
+      .finally(() => setServicesLoading(false))
+  }
   useEffect(() => {
-    api.getServices().then(setServices).catch((e) => setError(`Could not load services: ${e.message}`))
-    api.getPlaces().then(setPlaces).catch(() => {})
+    loadServices()
+    api.getPlaces().then(setPlaces).catch(() => {}).finally(() => setPlacesLoading(false))
   }, [])
 
   async function runSearch(q) {
-    setLoading(true); setError(''); setSelected(null)
-    try { setResult(await api.recommend(q)) } catch (e) { setError(e.message) } finally { setLoading(false) }
+    setLoading(true); setError(null); setSelected(null)
+    try { setResult(await api.recommend(q)) }
+    catch (e) { setError({ text: 'We could not reach the search service. Try again.', detail: e.message, retry: () => runSearch(q) }) }
+    finally { setLoading(false) }
   }
 
   // After a reviewer confirms / rejects something, re-run the same search so the overlay shows.
+  // The cards stay on screen, dimmed, while it runs.
   async function refresh() {
     if (!result?.query) return
-    try { const r = await api.recommend(result.query); setResult({ ...r, chat: result.chat }) } catch (e) { setError(e.message) }
+    setRefreshing(true)
+    try { const r = await api.recommend(result.query); setResult({ ...r, chat: result.chat }) }
+    catch (e) { setError({ text: 'Saved, but we could not refresh the results.', detail: e.message, retry: refresh }) }
+    finally { setRefreshing(false) }
   }
 
   // Chat and voice hand back a RecommendResponse when they have one.
@@ -66,7 +90,7 @@ export default function App() {
   const results = result?.results || []
   const nMain = results.filter((r) => !r.is_nearest_alternative).length
   const verifyFor = (rec) => (result?.service_key
-    ? (checkKey, status, label) => recordVerification({ facilityId: rec.id, serviceKey: result.service_key, checkKey, status, label, onVerified: refresh })
+    ? (checkKey, status, label, note) => saveVerification({ facilityId: rec.id, serviceKey: result.service_key, checkKey, status, label, note, onVerified: refresh })
     : null)
   const widerKm = result && Math.min(MAX_KM, result.query.max_km * 2)
 
@@ -85,12 +109,22 @@ export default function App() {
         <section className="left">
           <div className="panel input-panel">
             <Tabs items={MODES} value={mode} onChange={setMode} label="Input mode" className="input-tabs" />
-            {mode === 'form' && <SearchForm services={services} places={places} loading={loading} onSearch={runSearch} />}
+            {mode === 'form' && <SearchForm services={services} places={places} servicesLoading={servicesLoading}
+                                            placesLoading={placesLoading} loading={loading} onSearch={runSearch} />}
             {mode === 'chat' && <ChatPanel onResult={showResult} />}
             {mode === 'voice' && <VoicePanel onResult={showResult} />}
           </div>
 
-          {error && <div className="alert error" role="alert"><Icon name="alert" /><span>{error}</span></div>}
+          {error && (
+            <div className="alert error" role="alert">
+              <Icon name="alert" />
+              <div className="alert-body">
+                <p><b>{error.text}</b></p>
+                {error.detail && <p className="small">{error.detail}</p>}
+              </div>
+              {error.retry && <Button size="sm" icon="retry" onClick={error.retry}>Try again</Button>}
+            </div>
+          )}
 
           {result?.safety_note && (
             <div className="alert safety" role="alert">
@@ -122,10 +156,11 @@ export default function App() {
           )}
           {result?.notes?.map((n) => <div key={n} className="alert note">{n}</div>)}
 
-          {loading && <div className="skeletons">{[0, 1, 2].map((i) => <Skeleton key={i} height={i ? 64 : 280} radius="var(--r-lg)" />)}</div>}
+          {loading && <ResultsSkeleton />}
 
           {!loading && results.length > 0 && (
-            <div className="cards">
+            <div className={`cards ${refreshing ? 'is-refreshing' : ''}`} aria-busy={refreshing || undefined}>
+              {refreshing && <span className="progress-line" aria-hidden />}
               <ResultHero rec={results[0]} top={results[0]} selected={selected === results[0].id}
                           onSelect={() => setSelected(results[0].id)} verify={verifyFor(results[0])} />
               {results.length > 1 && (
@@ -140,15 +175,21 @@ export default function App() {
           )}
 
           {!result && !loading && (
-            <div className="empty">
-              <p><b>Choose the care you need and where you are.</b></p>
-              <p className="muted">We'll show the 5 best nearby options, how long it takes to get there, and what to ask when you call.</p>
-            </div>
+            <section className="example" aria-label="Example result">
+              <div className="example-head">
+                <p><b>Example result</b> <span className="muted">Made-up data. It shows what a search returns.</span></p>
+                <Button size="sm" icon="search" onClick={() => runSearch(DEMO)}>Try an example</Button>
+              </div>
+              <div className="example-card" inert="">
+                <ResultHero rec={SAMPLE_RESULTS[0]} top={SAMPLE_RESULTS[0]} example onSelect={() => {}} />
+              </div>
+            </section>
           )}
         </section>
 
         <section className="right">
-          <ResultsMap result={result} selected={selected} onSelect={setSelected} />
+          <ResultsMap result={result} selected={selected} onSelect={setSelected}
+                      examples={EXAMPLE_PINS.map((e) => ({ ...e, onPick: () => runSearch(e.q) }))} />
         </section>
       </main>
       )}

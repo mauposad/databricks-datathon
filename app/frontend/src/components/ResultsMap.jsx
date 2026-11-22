@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
-import { Circle, MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet'
+import { useEffect, useState } from 'react'
+import { Circle, MapContainer, Marker, Popup, TileLayer, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
 
 const INDIA = [22.5, 79]
@@ -10,15 +10,16 @@ const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyV
 const numberIcon = (n, active) => L.divIcon({
   className: '',
   html: `<div class="pin ${active ? 'active' : ''}">${n}</div>`,
-  iconSize: [30, 30],
-  iconAnchor: [15, 15],
+  iconSize: [28, 28],
+  iconAnchor: [14, 14],
 })
-const originIcon = L.divIcon({ className: '', html: '<div class="origin-pin"></div>', iconSize: [18, 18], iconAnchor: [9, 9] })
+const originIcon = L.divIcon({ className: '', html: '<div class="origin-pin"></div>', iconSize: [16, 16], iconAnchor: [8, 8] })
+const exampleIcon = L.divIcon({ className: '', html: '<div class="example-pin"></div>', iconSize: [14, 14], iconAnchor: [7, 7] })
 
 function FitBounds({ result }) {
   const map = useMap()
   useEffect(() => {
-    if (!result) return
+    if (!result) { map.setView(INDIA, 5); return }
     const pts = result.results.filter((r) => r.lat != null).map((r) => [r.lat, r.lon])
     if (result.origin?.lat != null) pts.push([result.origin.lat, result.origin.lon])
     if (pts.length === 1) map.setView(pts[0], 11)
@@ -36,13 +37,22 @@ function FlyTo({ result, selected }) {
   return null
 }
 
-export default function ResultsMap({ result, selected, onSelect }) {
+// examples: [{ label, lat, lon, onPick }] shown before the first search so the map is never blank.
+export default function ResultsMap({ result, selected, onSelect, examples = [] }) {
   const origin = result?.origin
+  const [tilesReady, setTilesReady] = useState(false)
   return (
-    <div className="map-wrap">
+    <div className="map-wrap" aria-busy={!tilesReady || undefined}>
       <MapContainer center={INDIA} zoom={5} className="map" scrollWheelZoom>
         <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                   eventHandlers={{ load: () => setTilesReady(true) }} />
+        {!result && examples.map((ex) => (
+          <Marker key={ex.label} position={[ex.lat, ex.lon]} icon={exampleIcon} eventHandlers={{ click: ex.onPick }}
+                  keyboard title={`Try ${ex.label}`}>
+            <Tooltip direction={ex.dir || 'top'} offset={{ top: [0, -8], left: [-8, 0], right: [8, 0] }[ex.dir || 'top']} permanent>{ex.label}</Tooltip>
+          </Marker>
+        ))}
         {origin?.lat != null && (
           <>
             <Circle center={[origin.lat, origin.lon]} radius={result.query.max_km * 1000}
@@ -65,12 +75,15 @@ export default function ResultsMap({ result, selected, onSelect }) {
         <FitBounds result={result} />
         <FlyTo result={result} selected={selected} />
       </MapContainer>
-      {result && (
+      {!tilesReady && <div className="map-loading skeleton" aria-hidden />}
+      {result ? (
         <div className="map-legend num">
           <span><span className="origin-pin inline" /> You searched here</span>
           <span><span className="pin inline">1</span> Ranked option</span>
           <span>Circle: {result.query.max_km} km</span>
         </div>
+      ) : examples.length > 0 && (
+        <div className="map-legend"><span><span className="example-pin inline" /> Example searches. Select one to run it.</span></div>
       )}
     </div>
   )

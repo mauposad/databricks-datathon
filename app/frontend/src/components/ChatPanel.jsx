@@ -12,6 +12,7 @@ export default function ChatPanel({ onResult, voiceFirst = false }) {
   const [busy, setBusy] = useState(false)
   const [listening, setListening] = useState(false)
   const [autoSpeak, setAutoSpeak] = useState(voiceFirst)
+  const [micError, setMicError] = useState('')
   const stopRef = useRef(null)
   const endRef = useRef(null)
 
@@ -30,19 +31,26 @@ export default function ChatPanel({ onResult, voiceFirst = false }) {
       onResult(res.recommendations && { ...res.recommendations, chat: { parsed_by: res.parsed_by, reply_source: res.reply_source } })
       if (autoSpeak) speak(res.reply)
     } catch (e) {
-      setMessages((m) => [...m, { role: 'assistant', content: `Sorry, something went wrong: ${e.message}` }])
+      setMessages((m) => [...m, { role: 'assistant', error: true, content: `We could not reach the search service. Try again. (${e.message})` }])
     } finally { setBusy(false) }
   }
 
   function toggleMic() {
     if (listening) { stopRef.current?.(); return }
     stopSpeaking()
+    setMicError('')
     setListening(true)
     stopRef.current = listen({
       onInterim: (t) => setInput(t),
       onFinal: (t) => { setInput(t); send(t) },
       onEnd: () => setListening(false),
-      onError: (err) => { setListening(false); if (err !== 'no-speech' && err !== 'aborted') alert(`Microphone error: ${err}`) },
+      onError: (err) => {
+        setListening(false)
+        if (err === 'no-speech' || err === 'aborted') return
+        setMicError(err === 'not-allowed' || err === 'service-not-allowed'
+          ? 'Microphone access is blocked. Allow it in the browser, or type your question.'
+          : `The microphone stopped (${err}). Try again, or type your question.`)
+      },
     })
   }
 
@@ -51,14 +59,18 @@ export default function ChatPanel({ onResult, voiceFirst = false }) {
       <div className="messages">
         {messages.map((m, i) => (
           <div key={i} className={`msg ${m.role}`}>
-            <div className="bubble">{m.content}</div>
+            <div className={`bubble ${m.error ? 'bubble-error' : ''}`}>{m.content}</div>
             {m.role === 'assistant' && i > 0 && canSpeak && (
               <Button variant="ghost" size="sm" icon="speaker" onClick={() => speak(m.content)}>Read aloud</Button>
             )}
             {m.meta && <div className="meta">{m.meta}</div>}
           </div>
         ))}
-        {busy && <div className="msg assistant"><div className="bubble typing">Searching…</div></div>}
+        {busy && (
+          <div className="msg assistant">
+            <div className="bubble typing" role="status" aria-label="Searching"><span className="dots" aria-hidden><i /><i /><i /></span></div>
+          </div>
+        )}
         <div ref={endRef} />
       </div>
 
@@ -84,9 +96,10 @@ export default function ChatPanel({ onResult, voiceFirst = false }) {
           )}
           <input className="field" value={input} onChange={(e) => setInput(e.target.value)} aria-label="Message"
                  placeholder="e.g. NICU near Patna within 100 km" />
-          <Button type="submit" variant="primary" icon="send" disabled={busy || !input.trim()}>Send</Button>
+          <Button type="submit" variant="primary" icon="send" loading={busy} disabled={busy || !input.trim()}>Send</Button>
         </form>
       )}
+      {micError && <p className="field-error" role="alert"><Icon name="alert" /><span>{micError}</span></p>}
       {canSpeak && <Switch checked={autoSpeak} onCheckedChange={setAutoSpeak} label="Read answers aloud" className="auto-speak" />}
     </div>
   )

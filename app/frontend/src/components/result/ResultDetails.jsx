@@ -1,6 +1,6 @@
 import Icon from '../Icon.jsx'
 import ScoreBreakdown from '../ScoreBreakdown.jsx'
-import { Button } from '../ui/index.js'
+import VerifyAction from './VerifyAction.jsx'
 import Checklist from './Checklist.jsx'
 import Quotes from './Quotes.jsx'
 import LocationChecks from './LocationChecks.jsx'
@@ -65,8 +65,10 @@ export default function ResultDetails({ rec, d, verify }) {
         <Section title="Record what you learned by phone">
           <p className="small muted">Saved for everyone and reflected the next time this search runs.</p>
           <div className="verify-service">
-            <Button size="sm" icon="check" onClick={() => verify('service', 'confirmed', 'they offer this service')}>They offer this service</Button>
-            <Button size="sm" icon="x" onClick={() => verify('service', 'rejected', 'they do not offer this service')}>Not available</Button>
+            <VerifyAction status="confirmed" label="they offer this service" icon="check" variant="secondary"
+                          onSave={(note) => verify('service', 'confirmed', 'they offer this service', note)}>They offer this service</VerifyAction>
+            <VerifyAction status="rejected" label="they do not offer this service" icon="x" variant="secondary"
+                          onSave={(note) => verify('service', 'rejected', 'they do not offer this service', note)}>Not available</VerifyAction>
           </div>
         </Section>
       )}

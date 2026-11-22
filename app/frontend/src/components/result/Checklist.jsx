@@ -1,5 +1,6 @@
 import Icon from '../Icon.jsx'
-import { Button, Tooltip } from '../ui/index.js'
+import { Tooltip } from '../ui/index.js'
+import VerifyAction from './VerifyAction.jsx'
 
 const CLAIM_LABEL = { direct: 'stated', list_dump: 'in a list', hedged: 'guess', third_party: 'other institution', negated: 'negative', verified: 'reviewer' }
 export const CLAIM_HELP = {
@@ -35,8 +36,8 @@ export function ClaimTag({ type }) {
 function VerifyButtons({ label, verify }) {
   return (
     <span className="verify">
-      <Button size="sm" variant="ghost" icon="check" aria-label={`Confirm: ${label}`} onClick={() => verify('confirmed')}>Confirm</Button>
-      <Button size="sm" variant="ghost" icon="x" aria-label={`Reject: ${label}`} onClick={() => verify('rejected')}>Reject</Button>
+      <VerifyAction status="confirmed" label={label} icon="check" ariaLabel={`Confirm: ${label}`} onSave={(note) => verify('confirmed', note)}>Confirm</VerifyAction>
+      <VerifyAction status="rejected" label={label} icon="x" ariaLabel={`Reject: ${label}`} onSave={(note) => verify('rejected', note)}>Reject</VerifyAction>
     </span>
   )
 }
@@ -51,7 +52,7 @@ export default function Checklist({ checks, pattern, verify }) {
           <div className="check-body">
             <div className="check-title">
               <span>{c.label}</span>
-              {verify && <VerifyButtons label={c.label} verify={(status) => verify(c.key, status, c.label)} />}
+              {verify && <VerifyButtons label={c.label} verify={(status, note) => verify(c.key, status, c.label, note)} />}
             </div>
             {c.cited_text
               ? <div className="quote">

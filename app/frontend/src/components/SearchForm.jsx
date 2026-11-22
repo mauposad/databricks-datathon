@@ -8,11 +8,13 @@ const EXAMPLES = [
   { service: 'nicu', place: 'Patna' },
 ]
 
-export default function SearchForm({ services, places, loading, onSearch }) {
+export default function SearchForm({ services, places, servicesLoading, placesLoading, loading, onSearch }) {
   const [service, setService] = useState('')
   const [place, setPlace] = useState('')
   const [maxKm, setMaxKm] = useState(75)
   const [publicOnly, setPublicOnly] = useState(false)
+  const [locating, setLocating] = useState(false)
+  const [placeError, setPlaceError] = useState('')
 
   function submit(e) {
     e?.preventDefault()
@@ -20,9 +22,18 @@ export default function SearchForm({ services, places, loading, onSearch }) {
   }
 
   function useMyLocation() {
-    navigator.geolocation?.getCurrentPosition(
-      (p) => setPlace(`${p.coords.latitude.toFixed(4)},${p.coords.longitude.toFixed(4)}`),
-      () => alert('Location permission was denied.'),
+    setPlaceError('')
+    if (!navigator.geolocation) { setPlaceError('This browser cannot share your location. Type a PIN code or a city.'); return }
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(
+      (p) => { setLocating(false); setPlace(`${p.coords.latitude.toFixed(4)},${p.coords.longitude.toFixed(4)}`) },
+      (err) => {
+        setLocating(false)
+        setPlaceError(err.code === 1
+          ? 'Location access is blocked. Allow it in the browser, or type a PIN code or a city.'
+          : 'We could not get your location. Type a PIN code or a city.')
+      },
+      { timeout: 15000 },
     )
   }
 
@@ -33,18 +44,21 @@ export default function SearchForm({ services, places, loading, onSearch }) {
       <div className="form-grid">
         <div className="form-field">
           <Select id="sf-service" value={service} onValueChange={setService} label="Care needed"
-                  placeholder="Choose a service" options={services.map((s) => ({ value: s.key, label: s.label }))} />
+                  placeholder="Choose a service" loading={servicesLoading} loadingText="Loading care types" options={services.map((s) => ({ value: s.key, label: s.label }))} />
         </div>
 
         <div className="form-field">
           {/* The placeholder says what goes here; screen readers get the name from aria-label. */}
-          <Combobox value={place} onChange={setPlace} options={places} label="Your location"
-                    placeholder="PIN code, city, village or district" onEnter={submit}
+          <Combobox value={place} onChange={(v) => { setPlace(v); setPlaceError('') }} options={places} label="Your location"
+                    placeholder="PIN code, city, village or district" onEnter={submit} loading={placesLoading && !places.length}
+                    invalid={!!placeError} describedBy={placeError ? 'sf-place-error' : undefined}
                     trailing={
-                      <button type="button" className="icon-btn" onClick={useMyLocation} aria-label="Use my location">
-                        <Icon name="locate" />
+                      <button type="button" className="icon-btn" onClick={useMyLocation} disabled={locating}
+                              aria-label={locating ? 'Finding your location' : 'Use my location'}>
+                        <Icon name={locating ? 'spinner' : 'locate'} className={locating ? 'spin' : ''} />
                       </button>
                     } />
+          {placeError && <p id="sf-place-error" className="field-error" role="alert"><Icon name="alert" /><span>{placeError}</span></p>}
         </div>
       </div>
 

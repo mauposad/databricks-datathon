@@ -69,6 +69,13 @@ input.field::placeholder, .field input::placeholder { color: var(--muted); }
 .field-group { padding: var(--pad); padding-left: var(--s-3); gap: var(--s-1); min-height: 44px; }
 .field-group input { flex: 1; min-width: 0; border: none; background: none; outline: none; padding: 0; font-size: var(--fs-4); line-height: var(--lh-4); }
 .field-group .icon-btn { --r-inner: max(4px, calc(var(--r-outer) - var(--pad))); border-radius: var(--r-inner); width: 34px; height: 34px; }
+.field.is-invalid { border-color: var(--low); }
+.field-error { display: flex; gap: var(--s-1); align-items: flex-start; color: var(--low); font-size: var(--fs-2); line-height: var(--lh-2); }
+.field-error .icon { margin-top: 1px; }
+.textarea { display: block; min-height: 0; padding: var(--s-2) var(--s-3); font-size: var(--fs-3); line-height: var(--lh-3); resize: vertical; }
+.verify-form { display: flex; flex-direction: column; gap: var(--s-3); }
+.verify-form-title { font-weight: var(--fw-strong); }
+.verify-form-actions { display: flex; justify-content: flex-end; gap: var(--s-2); }
 .field-status { display: inline-grid; place-items: center; color: var(--muted); padding: 0 var(--s-1); }
 
 .select-trigger { justify-content: space-between; gap: var(--s-2); text-align: left; cursor: pointer; }
@@ -177,7 +184,9 @@ input.field::placeholder, .field input::placeholder { color: var(--muted); }
 
 /* ---------- Alerts and summary ---------- */
 .alert { border-radius: var(--r-md); padding: var(--s-3) var(--s-4); font-size: var(--fs-3); display: flex; gap: var(--s-3); align-items: flex-start; }
-.alert.error { background: var(--low-bg); color: var(--low); }
+.alert.error { background: var(--low-bg); color: var(--low); align-items: center; }
+.alert-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.alert .btn { flex: none; }
 .alert.note { background: var(--warn-bg); color: var(--warn); }
 .alert.safety { background: var(--low-bg); color: var(--low); }
 
@@ -186,9 +195,30 @@ input.field::placeholder, .field input::placeholder { color: var(--muted); }
 .summary p { font-size: var(--fs-3); }
 .summary-actions { display: flex; flex-wrap: wrap; gap: var(--s-2); align-items: center; margin-top: var(--s-1); margin-left: calc(-1 * var(--s-2)); }
 
-.empty { text-align: center; padding: var(--s-6) var(--s-3); }
-.empty p { margin: 0 0 var(--s-2); }
-.skeletons { display: flex; flex-direction: column; gap: var(--s-4); }
+/* First screen: a static example card, clearly labelled, plus one action. */
+.example { display: flex; flex-direction: column; gap: var(--s-3); }
+.example-head { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: center; justify-content: space-between; }
+.example-head p { display: flex; flex-wrap: wrap; gap: 0 var(--s-2); }
+.example-card .card { border-style: dashed; cursor: default; }
+
+/* Waiting states */
+.skeleton-card { cursor: default; }
+.skeleton-card .stats { border-top-color: transparent; }
+.is-refreshing { position: relative; }
+.is-refreshing > :not(.progress-line) { opacity: .6; transition: opacity var(--dur-fast) var(--ease-out); pointer-events: none; }
+.progress-line {
+  position: absolute; z-index: 2; left: 0; right: 0; top: calc(-1 * var(--s-2)); height: 2px; border-radius: var(--r-pill);
+  background: var(--line); overflow: hidden;
+}
+.progress-line::after {
+  content: ''; position: absolute; inset: 0; width: 30%; background: var(--text);
+  animation: progress 1.1s var(--ease-in-out) infinite;
+}
+@keyframes progress { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+.dots { display: inline-flex; gap: 4px; align-items: center; height: var(--lh-3); }
+.dots i { width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--muted); animation: pulse 1s ease-in-out infinite alternate; }
+.dots i:nth-child(2) { animation-delay: 160ms; }
+.dots i:nth-child(3) { animation-delay: 320ms; }
 
 /* ---------- Result cards ---------- */
 .cards { display: flex; flex-direction: column; gap: var(--s-4); }
@@ -382,7 +412,8 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .msg.user { align-items: flex-end; }
 .bubble { max-width: 88%; padding: var(--s-2) var(--s-3); border-radius: var(--r-md); background: var(--subtle); white-space: pre-wrap; }
 .msg.user .bubble { background: var(--text); color: var(--panel); }
-.typing { color: var(--muted); }
+.typing { color: var(--muted); min-width: 56px; }
+.bubble-error { background: var(--low-bg); color: var(--low); }
 .meta { font-size: var(--fs-1); line-height: var(--lh-1); color: var(--muted); }
 .chat-input { display: flex; gap: var(--s-2); align-items: center; }
 .chat-input .field { font-size: var(--fs-4); }
@@ -423,6 +454,13 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .pin.active { background: var(--map-pin-active); transform: scale(1.2); }
 .pin.inline { display: inline-grid; width: 18px; height: 18px; font-size: var(--fs-1); border-width: 1px; }
 .origin-pin { width: 16px; height: 16px; border-radius: var(--r-pill); background: var(--map-origin); border: 3px solid var(--map-pin-ring); box-shadow: 0 0 0 2px var(--map-origin); }
+.example-pin { width: 14px; height: 14px; border-radius: var(--r-pill); background: var(--map-pin); border: 2px solid var(--map-pin-ring); }
+.example-pin.inline { display: inline-block; width: 12px; height: 12px; }
+.leaflet-tooltip { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-sm); box-shadow: none; font-size: var(--fs-1); line-height: var(--lh-1); padding: 2px var(--s-2); }
+.leaflet-tooltip-top::before { border-top-color: var(--line); }
+.leaflet-tooltip-left::before { border-left-color: var(--line); }
+.leaflet-tooltip-right::before { border-right-color: var(--line); }
+.map-loading { position: absolute; inset: 0; z-index: 400; border-radius: 0; pointer-events: none; }
 .origin-pin.inline { display: inline-block; width: 12px; height: 12px; border-width: 2px; }
 
 /* ---------- Responsive ---------- */

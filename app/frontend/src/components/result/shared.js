@@ -1,5 +1,6 @@
 // Plain-language labels and the card logic, moved unchanged from the old ResultCard.jsx.
 import * as api from '../../api.js'
+import { toast } from '../ui/index.js'
 
 export const BADGE = {
   High: { tone: 'success', text: 'High confidence' },
@@ -30,14 +31,12 @@ export const fmtKm = (km) => (km < 1 ? 'under 1 km' : `${km} km`)
 export const tagNumber = (tags, word) => tags.map((t) => t.match(new RegExp(`^(\\d+) ${word}`))).find(Boolean)?.[1]
 export const directionsHref = (rec) => `https://www.google.com/maps/dir/?api=1&destination=${rec.lat},${rec.lon}`
 
-// Ask for an optional note, then record a reviewer decision in the verifications overlay.
-export async function recordVerification({ facilityId, serviceKey, checkKey, status, label, onVerified }) {
-  const note = window.prompt(`${status === 'confirmed' ? 'Confirm' : 'Reject'}: ${label}\nOptional note (who you spoke to, source):`, '')
-  if (note === null) return
-  try {
-    await api.verify({ facility_id: facilityId, service_key: serviceKey, check_key: checkKey, status, note: note || null })
-    onVerified?.()
-  } catch (e) { alert(`Could not save: ${e.message}`) }
+// Record a reviewer decision (with an optional note) in the verifications overlay, then re-run the search.
+// The note is asked for in a popover next to the button (VerifyAction.jsx), not in a blocking prompt.
+export async function saveVerification({ facilityId, serviceKey, checkKey, status, label, note, onVerified }) {
+  await api.verify({ facility_id: facilityId, service_key: serviceKey, check_key: checkKey, status, note: note || null })
+  toast.success(`Saved: ${status === 'confirmed' ? 'confirmed' : 'rejected'} "${label}"`, { description: 'Everyone sees this the next time the search runs.' })
+  onVerified?.(facilityId)
 }
 
 // Explain why this facility ranks below #1, in one or two sentences.

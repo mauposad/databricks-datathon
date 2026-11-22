@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as api from '../api.js'
-import { Button, Popover, Select } from './ui/index.js'
+import { Button, Popover, Select, Skeleton } from './ui/index.js'
 
 const SERVICES = [
   ['emergency_csection', 'Emergency C-section'], ['nicu', 'NICU'], ['dialysis', 'Dialysis'], ['trauma', 'Trauma'],
@@ -66,9 +66,10 @@ export default function Planner() {
                   options={[{ value: ALL, label: 'All states' }, ...allStates.map((s) => ({ value: s, label: s }))]} />
         </div>
       </div>
-      {error && <div className="alert error">{error}</div>}
-      {loading ? <div className="skeleton" /> : (
-        <div className="table-wrap">
+      {error && <div className="alert error" role="alert"><span>We could not load the planner. {error}</span></div>}
+      {loading && !rows.length ? <PlannerSkeleton nInd={ind.length} /> : (
+        <div className={`table-wrap ${loading ? 'is-refreshing' : ''}`} aria-busy={loading || undefined}>
+          {loading && <span className="progress-line" aria-hidden />}
           <table className="planner-table">
             <thead>
               <tr>
@@ -93,6 +94,25 @@ export default function Planner() {
           </table>
         </div>
       )}
+    </div>
+  )
+}
+
+// Same columns as the real table, so nothing jumps when the rows arrive.
+function PlannerSkeleton({ nInd }) {
+  const cols = 5 + nInd
+  return (
+    <div className="table-wrap" role="status" aria-label="Loading districts">
+      <table className="planner-table">
+        <thead><tr>{Array.from({ length: cols }, (_, i) => <th key={i}><Skeleton width={i < 2 || i === 3 ? 120 : 48} height={12} /></th>)}</tr></thead>
+        <tbody>
+          {Array.from({ length: 8 }, (_, r) => (
+            <tr key={r}>{Array.from({ length: cols }, (_, i) => (
+              <td key={i}><Skeleton width={i < 2 || i === 3 ? 140 : 40} height={14} />{i < 2 && <Skeleton width={80} height={12} style={{ marginTop: 6 }} />}</td>
+            ))}</tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
