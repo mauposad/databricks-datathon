@@ -38,9 +38,12 @@ const EXAMPLE_PINS = [
 // "Dialysis" -> "dialysis", but keep "NICU" and "MRI" as they are.
 const lowerFirst = (s) => (s && s.length > 1 && s[1] === s[1].toLowerCase() ? s[0].toLowerCase() + s.slice(1) : s)
 
+const placeName = (result) => (result.origin?.label || result.query.place).replace(/\s*\(.*\)\s*$/, '')
+
 function headline(result, n) {
   const what = lowerFirst(result.service_label || result.query.service)
-  const where = result.origin?.label || result.query.place
+  // The backend annotates the label ("Jaipur (city, from 165 facilities)"); the headline keeps the place only.
+  const where = placeName(result)
   const km = result.query.max_km
   if (n === 0) return `No ${what} options within ${km} km of ${where}`
   return `${n} ${what} option${n === 1 ? '' : 's'} within ${km} km of ${where}`
@@ -153,6 +156,7 @@ export default function App() {
             <motion.div key={headline(result, nMain)} className="summary" {...p.enter}>
               <h2>{headline(result, nMain)}</h2>
               <p className="muted num">
+                {result.origin?.label && result.origin.label !== placeName(result) && <>Searched from {result.origin.label} · </>}
                 {result.n_candidates} facilities checked
                 {result.query.public_only ? ' · government facilities only' : ''}
               </p>

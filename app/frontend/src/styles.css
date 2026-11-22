@@ -416,6 +416,7 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .planner-table th, .planner-table td { text-align: left; padding: var(--s-2); border-bottom: 1px solid var(--line); vertical-align: top; }
 .planner-table td { font-variant-numeric: tabular-nums; }
 .planner-table .n { text-align: right; }
+.planner-table td.n { white-space: nowrap; }
 .planner-table th { position: sticky; top: 0; background: var(--panel); }
 .planner-table td.bad { color: var(--low); font-weight: var(--fw-strong); }
 .planner-table td.ok { color: var(--high); font-weight: var(--fw-strong); }
