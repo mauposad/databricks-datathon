@@ -36,7 +36,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install geopandas==1.0.1 --quiet
+# MAGIC %pip install geopandas==1.0.1 plotly==5.24.1 --quiet
 
 # COMMAND ----------
 
