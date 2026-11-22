@@ -9,15 +9,17 @@ import time
 from typing import Any, Optional
 
 from .. import sql
-from ..schema import (Check, Claim, Confidence, Evidence, LocationCheck, LocationValidation, Origin, Query,
-                      RecommendResponse, Recommendation, Scenario, Score, ScorePart, Service)
+from ..schema import (Check, Claim, Confidence, DoubleCheck, Evidence, LocationCheck, LocationValidation, Origin, Query,
+                      RecommendResponse, Recommendation, Score, ScorePart, Service)
 from .base import Adapter
 
 CONFIDENCE_RULE = ("High: trust ≥ 70 with strong/moderate evidence · Medium: trust 45–69 · Low: trust < 45 · "
                    "capped at Medium when the record's identity is not settled (possible merged record, near-duplicate "
                    "record nearby, or coordinates and PIN code disagree with nothing to settle it) · "
                    "Probable: the procedure is not named, but a large or teaching hospital lists the specialty (call to confirm) · "
-                   "Unconfirmed: only weak evidence (a related specialty or a passing mention in the description)")
+                   "Unconfirmed: only weak evidence (a related specialty or a passing mention in the description) · "
+                   "High when a reviewer confirmed the service by phone · "
+                   "Ranking puts High before Medium before Low/Probable, then orders by Quality within each group")
 
 QUALITY = ("Quality (0–100) = evidence for this service in the record (up to 50) + readiness (up to 30: hospital vs "
            "clinic, bed count, supporting services such as ICU or blood bank) + record reliability (up to 20: independent "
@@ -41,6 +43,13 @@ def _cached(key: str, ttl: float, fn):
     val = fn()
     _CACHE[key] = (time.time(), val)
     return val
+
+
+def _bool(v) -> bool | None:
+    """Struct fields arrive as JSON strings ("true"/"false") from the SQL API."""
+    if v is None or isinstance(v, bool):
+        return v
+    return str(v).lower() == "true"
 
 
 def confidence_for(trust: float, tier: str | None, identity_conflict: bool = False) -> str:
@@ -138,7 +147,9 @@ def to_recommendation(r: dict) -> Recommendation:
         pincode=r.get("pincode"), phone=r.get("phone"), website=r.get("website"), facebook=r.get("facebook"),
         email=r.get("email"), lat=r.get("lat"), lon=r.get("lon"), distance_km=r.get("distance_km"),
         facility_type=r.get("facility_type"), operator_type=r.get("operator_type"),
-        confidence=Confidence(label=confidence_for(trust, tier, bool(r.get("identity_conflict"))), score=trust, tier=tier,
+        # find_care computes the label (the ranking orders by it); the Python rule is a fallback for older functions
+        confidence=Confidence(label=r.get("confidence_label") or confidence_for(trust, tier, bool(r.get("identity_conflict"))),
+                              score=trust, tier=tier,
                               rule=CONFIDENCE_RULE),
         score=_score(r), tags=_tags(r), evidence=_evidence(r),
         rejected_evidence=r.get("negated_or_referral_mentions") or [],
@@ -155,8 +166,10 @@ def to_recommendation(r: dict) -> Recommendation:
         claims=[Claim(text=c["text"], field=c["field"], claim_type=c["claim_type"]) for c in (r.get("claims_cited") or [])],
         call_to_confirm=r.get("call_to_confirm"),
         identity_conflict=bool(r.get("identity_conflict")), coherence=r.get("record_coherence_score"),
-        verified_service=r.get("verified_service"), stability_note=r.get("stability_note"),
-        stable_first_in=r.get("stable_first_in"),
+        verified_service=r.get("verified_service"),
+        double_checks=[DoubleCheck(kind=c["kind"], label=c["label"], still_first=_bool(c.get("still_first")),
+                                   winner=c.get("winner")) for c in (r.get("double_checks") or [])],
+        pick_strength=r.get("pick_strength"), pick_strength_note=r.get("pick_strength_note"), tip_note=r.get("tip_note"),
         location_validation=_location_validation(r),
     )
 
@@ -204,7 +217,6 @@ class FindCareAdapter(Adapter):
         resp.n_candidates = first.get("n_candidates") or len(rows)
         resp.results = [to_recommendation(r) for r in rows]
         resp.service_key = next((s.key for s in self.services() if s.label == resp.service_label), None)
-        resp.scenarios = [Scenario(**x) for x in (first.get("scenario_winners") or [])]
         resp.ranking_rule = first.get("ranking_rule") or ""
         resp.travel_assumption = first.get("travel_assumption") or ""
         resp.search_note = first.get("search_note") or None

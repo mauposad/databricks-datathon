@@ -117,7 +117,17 @@ that silver does not have. The plan keeps silver's point resolution and adds our
 
 1. ✅ `03_publish_location_scores` wrote `workspace.datathon.silver_location_validation` (9,989 facilities) and
    `workspace.datathon.bronze_locval_facilities_repaired`. Both are owned by us.
-2. ✅ The edited `src/01`–`05` ran end to end as a sandbox copy (`workspace.default.lvsbx_*`) against those tables.
+2. ✅ The edited `src/01`–`05` (merged with main's PR #4) ran end to end as a sandbox copy
+   (`workspace.default.lvsbx_*`). Results:
+   * Silver: 9,989 facilities (live 9,959 + the 30 repaired), all scored.
+   * `find_care`: rankings for dialysis/Jaipur, C-section/226001, NICU/Muzaffarpur and trauma/Nagpur are identical
+     to live, which confirms the score is display-only.
+   * The gate removed 1 weak facility in Lucknow. Across gold it removes the 44 facilities scoring 2: 19 with strong
+     evidence for some service, 31 moderate, 5 probable, 39 weak.
+   * **Known gap:** the 30 repaired facilities are in silver but not in gold. The repair restored their coordinates,
+     `cluster_id` and `source_urls`, but not their specialties, procedures or capabilities, which sit in the
+     broken-off fragments. So they have no service evidence yet. Fix: realign those columns from the tail too, and
+     keep only values that parse as valid lists.
 3. ⏳ **Rebuild the live `workspace.datathon`** with `build_facility_tables` (it now runs the scoring job first).
    This replaces the teammate's tables and `find_care` and changes the live app immediately. Run it as the owner,
    or after agreeing it with them.

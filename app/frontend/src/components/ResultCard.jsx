@@ -2,9 +2,38 @@ import { useEffect, useRef, useState } from 'react'
 import ScoreBreakdown from './ScoreBreakdown.jsx'
 import * as api from '../api.js'
 
-const CONF_CLASS = { High: 'conf-high', Medium: 'conf-med', Low: 'conf-low', Probable: 'conf-low', Unconfirmed: 'conf-none' }
-// Ranking bands used by find_care: strong/moderate, then probable, then weak
-const tierBand = (t) => (t === 'weak' ? 2 : t === 'probable' ? 1 : 0)
+// ---------------------------------------------------------------------------
+// Plain-language labels
+// ---------------------------------------------------------------------------
+
+const BADGE = {
+  High: { cls: 'good', text: 'High confidence' },
+  Medium: { cls: 'ok', text: 'Medium confidence' },
+  Low: { cls: 'bad', text: 'Low confidence' },
+  Probable: { cls: 'ok', text: 'Likely · call to confirm' },
+  Unconfirmed: { cls: 'none', text: 'Unconfirmed' },
+}
+
+// Tags that are worth a "heads up" on the front of the card, in priority order, with plain wording.
+// Several record-identity tags collapse into one message.
+const HEADS_UP = [
+  { tags: ['Reported not available'], text: 'A reviewer reported this service is not available here.', level: 'bad' },
+  { tags: ['Identity not settled', 'Possible duplicate record', 'Possible merged record'], text: 'This record may be duplicated or mixed up with another facility.' },
+  { tags: ['Not a hospital'], text: 'Not a hospital — may be a clinic or smaller centre.' },
+  { tags: ['Location uncertain'], text: 'Map location is approximate.' },
+  { tags: ['Farther option'], text: 'Farther than the usual travel time for this service.' },
+]
+// Minor data-quality tags: shown only in the details.
+const MINOR = { 'Single source': 'Only one website or listing mentions this facility.', 'Has referral mentions': 'Some mentions only refer patients elsewhere; those were not counted.' }
+
+const telHref = (phone) => `tel:${phone.replace(/[^+\d]/g, '')}`
+const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, '') } catch { return url } }
+const withScheme = (url) => (url.startsWith('http') ? url : `https://${url}`)
+const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
+const fmtMin = (m) => (m < 1 ? 'Under 1 min' : `~${m} min`)
+const fmtKm = (km) => (km < 1 ? 'under 1 km' : `${km} km`)
+const tagNumber =(tags, word) => tags.map((t) => t.match(new RegExp(`^(\\d+) ${word}`))).find(Boolean)?.[1]
+
 // Ask for an optional note, then record a reviewer decision in the verifications overlay.
 async function recordVerification({ facilityId, serviceKey, checkKey, status, label, onVerified }) {
   const note = window.prompt(`${status === 'confirmed' ? 'Confirm' : 'Reject'}: ${label}\nOptional note (who you spoke to, source):`, '')
@@ -15,17 +44,6 @@ async function recordVerification({ facilityId, serviceKey, checkKey, status, la
   } catch (e) { alert(`Could not save: ${e.message}`) }
 }
 
-function VerifyButtons({ label, verify }) {
-  return (
-    <span className="verify" onClick={(e) => e.stopPropagation()}>
-      <button className="vbtn ok" title={`Confirm: ${label}`} onClick={() => verify('confirmed')}>✓ Confirm</button>
-      <button className="vbtn no" title={`Reject: ${label}`} onClick={() => verify('rejected')}>✗ Reject</button>
-    </span>
-  )
-}
-
-const WARN_TAGS = ['Reported not available', 'Single source', 'Possible merged record', 'Not a hospital', 'Has referral mentions', 'Location uncertain', 'Weak evidence', 'Farther option', 'Possible duplicate record', 'Identity not settled']
-
 function toRegex(pattern) {
   if (!pattern) return null
   try { return new RegExp(`(${pattern})`, 'gi') } catch { return null }
@@ -35,11 +53,10 @@ function toRegex(pattern) {
 function Highlight({ text, pattern }) {
   const re = toRegex(pattern)
   if (!re) return text
-  const parts = text.split(re)
-  return parts.map((p, i) => (i % 2 === 1 && p ? <mark key={i}>{p}</mark> : p))
+  return text.split(re).map((p, i) => (i % 2 === 1 && p ? <mark key={i}>{p}</mark> : p))
 }
 
-const CLAIM_LABEL = { direct: 'stated', list_dump: 'department list', hedged: 'guess', third_party: 'other institution', negated: 'negative', verified: 'reviewer' }
+const CLAIM_LABEL = { direct: 'stated', list_dump: 'in a list', hedged: 'guess', third_party: 'other institution', negated: 'negative', verified: 'reviewer' }
 const CLAIM_HELP = {
   direct: 'A plain statement in the record. Counts fully.',
   list_dump: 'Named only inside a long list of departments. Counts as moderate evidence at most.',
@@ -50,68 +67,171 @@ const CLAIM_HELP = {
 }
 const STATUS_ICON = { found: '✓', unknown: '?', contradicted: '✗' }
 
-// The evidence dimensions for headline services: what the record shows, what it doesn't say, what it contradicts.
+// ---------------------------------------------------------------------------
+// Detail sections
+// ---------------------------------------------------------------------------
+
+function VerifyButtons({ label, verify }) {
+  return (
+    <span className="verify">
+      <button className="vbtn ok" title={`Confirm: ${label}`} onClick={() => verify('confirmed')}>✓ Confirm</button>
+      <button className="vbtn no" title={`Reject: ${label}`} onClick={() => verify('rejected')}>✗ Reject</button>
+    </span>
+  )
+}
+
+// What the record shows for each key item, what it doesn't say, and what it contradicts.
 function Checklist({ checks, pattern, verify }) {
-  const got = checks.reduce((a, c) => a + c.points, 0)
-  const max = checks.reduce((a, c) => a + c.max_points, 0)
+  return (
+    <ul className="checklist">
+      {checks.map((c) => (
+        <li key={c.key} className={`check check-${c.status}`}>
+          <span className="icon" aria-label={c.status}>{STATUS_ICON[c.status] || '?'}</span>
+          <div className="check-body">
+            <div className="check-title">
+              <span>{c.label}</span>
+              {verify && <VerifyButtons label={c.label} verify={(status) => verify(c.key, status, c.label)} />}
+            </div>
+            {c.cited_text
+              ? <div className="quote">
+                  {c.claim_type && c.claim_type !== 'direct' &&
+                    <span className={`claim claim-${c.claim_type}`} title={CLAIM_HELP[c.claim_type]}>{CLAIM_LABEL[c.claim_type]}</span>}
+                  {c.status === 'contradicted' ? <s><q>{c.cited_text}</q></s> : <q><Highlight text={c.cited_text} pattern={pattern} /></q>}
+                </div>
+              : <div className="muted small">Not mentioned in the record.</div>}
+          </div>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function Quotes({ rec }) {
+  if (rec.claims?.length > 0) {
+    return (
+      <ul className="evidence">
+        {rec.claims.map((c, i) => {
+          const struck = c.claim_type === 'third_party' || c.claim_type === 'negated'
+          const quote = <q><Highlight text={c.text} pattern={rec.match_pattern} /></q>
+          return (
+            <li key={i} className={struck ? 'rejected' : ''}>
+              <span className="field">{c.field}</span>
+              {c.claim_type !== 'direct' &&
+                <span className={`claim claim-${c.claim_type}`} title={CLAIM_HELP[c.claim_type]}>{CLAIM_LABEL[c.claim_type] || c.claim_type}</span>}
+              {struck ? <s>{quote}</s> : quote}
+            </li>
+          )
+        })}
+      </ul>
+    )
+  }
   return (
     <>
-      <h5>Evidence checklist <span className="muted">({got}/{max} points · evidence dimensions, not a clinical checklist)</span></h5>
-      <ul className="checklist">
-        {checks.map((c) => (
-          <li key={c.key} className={`check check-${c.status}`}>
-            <span className="icon" aria-label={c.status}>{STATUS_ICON[c.status] || '?'}</span>
-            <div>
-              <div>{c.label} <span className="muted small">{c.points}/{c.max_points}</span>
-                {verify && <VerifyButtons label={c.label} verify={(status) => verify(c.key, status, c.label)} />}</div>
-              {c.cited_text
-                ? <div className="small">
-                    <span className="field">{c.field?.startsWith('service:') ? 'other service' : c.field}</span>
-                    {c.claim_type && c.claim_type !== 'direct' &&
-                      <span className={`claim claim-${c.claim_type}`} title={CLAIM_HELP[c.claim_type]}>{CLAIM_LABEL[c.claim_type]}</span>}
-                    {c.status === 'contradicted' ? <s><q>{c.cited_text}</q></s> : <q><Highlight text={c.cited_text} pattern={pattern} /></q>}
-                  </div>
-                : <div className="muted small">Not mentioned in the record (unknown, no penalty).</div>}
-            </div>
-          </li>
+      {rec.evidence.length === 0 && <p className="muted small">No direct mention of this service in the record.</p>}
+      <ul className="evidence">
+        {rec.evidence.map((e, i) => (
+          <li key={i}><span className="field">{e.field}</span><q><Highlight text={e.text} pattern={rec.match_pattern} /></q></li>
+        ))}
+        {rec.rejected_evidence.map((t, i) => (
+          <li key={`r${i}`} className="rejected"><span className="claim claim-negated">not counted</span><s>{t}</s></li>
         ))}
       </ul>
     </>
   )
 }
 
+// Explain why this facility ranks below #1, in one or two sentences.
+function rankReason(rec, top) {
+  if (!top || rec.id === top.id) return null
+  if (rec.score.mode === 'quality_first') {
+    const dq = rec.score.match - top.score.match
+    if (rec.ranking_band === 'unconfirmed') return 'Its evidence is weak, and weak evidence always comes after confirmed or probable options.'
+    if (rec.ranking_band === 'farther option' && top.ranking_band === 'reachable')
+      return `It is about ${rec.travel_min} min away, beyond the ${rec.travel_budget_min}-minute travel limit for this service, so it comes after every option within reach.`
+    const confGroup = (l) => (l === 'High' ? 1 : l === 'Medium' ? 2 : 3)
+    if (confGroup(rec.confidence.label) > confGroup(top.confidence.label))
+      return `We are less sure about this one (${rec.confidence.label.toLowerCase()} confidence vs ${top.confidence.label.toLowerCase()} for #1), and a less certain facility is never ranked above a more certain one, whatever its quality score.`
+    if (dq >= 0) return `Its quality score is ${dq === 0 ? 'the same as' : `${dq} points higher than`} #1's, but the options above it are within 10 points and closer.`
+    if (rec.points_below_best != null && rec.points_below_best > 0)
+      return `Quality ${rec.score.match} vs ${top.score.match} for #1. It is within 10 points of the best remaining option and closer, so it is not lower still.`
+    return `Quality ${rec.score.match} vs ${top.score.match} for #1: more than 10 points lower, so being closer does not move it up.`
+  }
+  const band = (t) => (t === 'weak' ? 2 : t === 'probable' ? 1 : 0)
+  if (band(rec.confidence.tier) > band(top.confidence.tier))
+    return `${rec.confidence.tier === 'weak' ? 'Weak' : 'Probable'} evidence is never ranked above ${top.confidence.tier === 'probable' ? 'probable' : 'strong or moderate'} evidence, whatever the distance.`
+  return `Match score ${rec.score.match} vs ${top.score.match} for #1 (60% evidence and data quality, 40% distance).`
+}
+
+// "How solid is this pick?" (#1 only): a one-line verdict, with the double-checks behind it on request.
+function CheckRow({ c }) {
+  const result = c.still_first === true ? <span className="still">✓ Still #1</span>
+    : c.still_first === false ? <span className="moves">→ {c.winner} would be #1</span>
+    : <span className="muted">No facility passes this check</span>
+  return <li><span className="check-label">{c.label}</span>{result}</li>
+}
+
+function PickStrength({ rec }) {
+  const solid = rec.pick_strength === 'Solid'
+  const data = rec.double_checks.filter((c) => c.kind === 'data')
+  const situation = rec.double_checks.filter((c) => c.kind === 'situation')
+  return (
+    <div className={`pick ${solid ? 'solid' : 'shaky'}`} onClick={(e) => e.stopPropagation()}>
+      <p className="pick-line"><span aria-hidden>{solid ? '🛡' : '⚠'}</span> {rec.pick_strength_note}</p>
+      {data.length > 0 && (
+        <details className="pick-checks">
+          <summary>See the {data.length} double-checks</summary>
+          <p className="small muted">
+            We re-ran the ranking {data.length} more times, each time doubting one part of the data. If #1 stays on top
+            every time, it is a solid pick. If not, the facility that takes its place is the one to call second.
+          </p>
+          <ul>{data.map((c) => <CheckRow key={c.label} c={c} />)}</ul>
+          {situation.length > 0 && (
+            <>
+              <p className="pick-sub">If your situation is different</p>
+              <ul>{situation.map((c) => <CheckRow key={c.label} c={c} />)}</ul>
+            </>
+          )}
+        </details>
+      )}
+    </div>
+  )
+}
+
 // Location validation (notebooks/location_validation_scoring): do the record's pincode, city, district, postal
-// circle, map point and phones agree? Shown for transparency; it does not change the rank.
+// circle, map point and phones agree? Shown for transparency; it does not change the rank. Facilities scoring 0-2
+// never reach the app (find_care leaves them out).
 const LOC_ICON = { pass: '✓', fail: '✗', missing: '–' }
 const LOC_CLASS = { pass: 'check-found', fail: 'check-contradicted', missing: 'check-unknown' }
-const LOC_LABEL = { verified_all: 'all checks agree', verified_strong: 'strong agreement', verified_partial: 'partial agreement' }
+const LOC_LABEL = { verified_all: 'every check agrees', verified_strong: 'strong agreement', verified_partial: 'partial agreement' }
 
 function LocationBadge({ lv }) {
   if (!lv) return null
   if (lv.status !== 'scored') {
-    return <span className="loc-badge loc-none" title="This record has no location validation score yet.">Location not validated</span>
+    return <span className="badge none" title="This record has no location validation score yet.">Location not validated</span>
   }
-  const cls = lv.score >= 5 ? 'loc-high' : lv.score >= 4 ? 'loc-med' : 'loc-low'
-  return <span className={`loc-badge ${cls}`} title={`Location validation: ${LOC_LABEL[lv.label] || lv.label}`}>Location {lv.score}/5</span>
+  const cls = lv.score >= 5 ? 'good' : lv.score >= 4 ? 'ok' : 'bad'
+  return <span className={`badge ${cls}`} title={`Location checks: ${LOC_LABEL[lv.label] || lv.label}`}>Location {lv.score}/5</span>
 }
 
 function LocationChecks({ lv }) {
-  if (!lv) return null
   if (lv.status !== 'scored') {
-    return (<>
-      <h5>Location checks</h5>
-      <p className="muted small">Not validated yet: this record has no location validation score.</p>
-    </>)
+    return <p className="muted small">Not checked yet: this record has no location validation score.</p>
   }
   return (
     <>
-      <h5>Location checks <span className="muted">({lv.score}/5 · {LOC_LABEL[lv.label] || lv.label} · shown, not used in ranking)</span></h5>
+      <p className="small muted">
+        {lv.score}/5, {LOC_LABEL[lv.label] || lv.label}. We compare the record's own pincode, city, district, postal
+        circle, map point and phone numbers with each other. This is shown for transparency and does not change the rank.
+      </p>
       <ul className="checklist">
         {lv.checks.map((c) => (
           <li key={c.key} className={`check ${LOC_CLASS[c.status] || 'check-unknown'}`}>
             <span className="icon" aria-label={c.status}>{LOC_ICON[c.status] || '?'}</span>
-            <div>
-              <div>{c.label} {c.kind === 'secondary' && <span className="muted small">supporting check</span>}</div>
+            <div className="check-body">
+              <div className="check-title">
+                <span>{c.label}</span>
+                {c.kind === 'secondary' && <span className="muted small">supporting check</span>}
+              </div>
               {c.status === 'fail' && c.why && <div className="muted small">{c.why}</div>}
               {c.status === 'missing' && <div className="muted small">Not in the record (does not count against it).</div>}
             </div>
@@ -122,217 +242,197 @@ function LocationChecks({ lv }) {
   )
 }
 
-function hostOf(url) {
-  try { return new URL(url).hostname.replace(/^www\./, '') } catch { return url }
-}
-
-function Contact({ icon, label, value, href }) {
+function Section({ title, defaultOpen = false, children }) {
   return (
-    <div className={value ? 'contact' : 'contact missing'}>
-      <span aria-hidden>{icon}</span>
-      {value
-        ? <a href={href || value} target="_blank" rel="noreferrer">{label || value}</a>
-        : <span>{label ? `${label}: ` : ''}Not listed</span>}
-    </div>
+    <details className="section" open={defaultOpen}>
+      <summary>{title}</summary>
+      <div className="section-body">{children}</div>
+    </details>
   )
 }
 
-// Explain, component by component, why this facility ranks below #1.
-function Comparison({ rec, top }) {
-  if (!top || rec.id === top.id) return null
-  const dTrust = rec.score.trust - top.score.trust
-  const dDist = rec.score.distance - top.score.distance
-  const byKey = Object.fromEntries(top.score.parts.map((p) => [p.key, p.points]))
-  const diffs = rec.score.parts
-    .map((p) => ({ label: p.label, d: p.points - (byKey[p.key] ?? 0) }))
-    .concat(top.score.parts.filter((p) => !rec.score.parts.some((q) => q.key === p.key)).map((p) => ({ label: p.label, d: -p.points })))
-    .filter((x) => x.d !== 0)
-  const sign = (n) => (n > 0 ? `+${n}` : `${n}`)
-  if (rec.score.mode === 'quality_first') {
-    const dq = rec.score.match - top.score.match
-    let reason
-    if (rec.ranking_band === 'unconfirmed') reason = 'Its evidence is weak, and weak evidence always comes after confirmed or probable options.'
-    else if (rec.ranking_band === 'farther option' && top.ranking_band === 'reachable')
-      reason = `It is about ${rec.travel_min} min away, beyond the ${rec.travel_budget_min}-minute travel budget for this service, so it comes after every reachable option.`
-    else if (dq >= 0) reason = `Its Quality is ${dq === 0 ? 'the same as' : `${dq} points higher than`} #1's, but facilities ranked above it are within 10 points of the best remaining option and closer.`
-    else if (rec.points_below_best != null && rec.points_below_best > 0)
-      reason = `Quality ${rec.score.match} vs ${top.score.match} (${dq}). When it was ranked, the best remaining Quality was ${rec.score.match + rec.points_below_best}; it is within 10 points of that and closer, which is why it is not lower still.`
-    else reason = `Quality ${rec.score.match} vs ${top.score.match} (${dq}): more than 10 points lower, so being closer does not move it up.`
-    return (
-      <div className="compare">
-        <h5>Why #{rec.rank} is below #1</h5>
-        <p>{reason}</p>
-        {diffs.length > 0 && (
-          <ul className="diffs">
-            {diffs.map((x) => <li key={x.label} className={x.d > 0 ? 'up' : 'down'}>{x.label}: {sign(x.d)}</li>)}
-          </ul>
-        )}
-      </div>
-    )
-  }
-  return (
-    <div className="compare">
-      <h5>Why #{rec.rank} is below #1</h5>
-      {tierBand(rec.confidence.tier) > tierBand(top.confidence.tier)
-        ? <p>
-            {rec.confidence.tier === 'weak' ? 'Weak' : 'Probable'} evidence is never ranked above
-            {top.confidence.tier === 'probable' ? ' probable' : ' strong or moderate'} evidence, whatever the distance.
-          </p>
-        : (
-          <p>
-            Match {rec.score.match} vs {top.score.match}: trust {sign(dTrust)} (×0.6 = {sign(+(0.6 * dTrust).toFixed(1))}),
-            distance score {sign(dDist)} (×0.4 = {sign(+(0.4 * dDist).toFixed(1))}).
-          </p>
-        )}
-      {diffs.length > 0 && (
-        <ul className="diffs">
-          {diffs.map((x) => <li key={x.label} className={x.d > 0 ? 'up' : 'down'}>{x.label}: {sign(x.d)}</li>)}
-        </ul>
-      )}
-    </div>
-  )
-}
+// ---------------------------------------------------------------------------
+// Card
+// ---------------------------------------------------------------------------
 
 export default function ResultCard({ rec, top, selected, onSelect, serviceKey, onVerified }) {
   const verify = serviceKey
     ? (checkKey, status, label) => recordVerification({ facilityId: rec.id, serviceKey, checkKey, status, label, onVerified })
     : null
-  const [open, setOpen] = useState(rec.rank === 1)
+  const [open, setOpen] = useState(false)
   const ref = useRef(null)
   useEffect(() => { if (selected) ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }) }, [selected])
 
   const address = [rec.address, rec.city, rec.district, rec.state, rec.pincode].filter(Boolean)
   const uniqueAddress = address.filter((v, i) => address.findIndex((w) => String(w).toLowerCase() === String(v).toLowerCase()) === i).join(', ')
 
+  // Header badge: a reviewer's decision outranks the computed confidence.
+  const badge = rec.verified_service === 'rejected' ? { cls: 'bad', text: 'Reported unavailable' }
+    : BADGE[rec.confidence.label] || BADGE.Unconfirmed
+
+  // Facility facts in one line: "Private hospital · 100 beds · 75 doctors"
+  const beds = tagNumber(rec.tags, 'beds')
+  const doctors = tagNumber(rec.tags, 'doctor')
+  const kind = [rec.operator_type, rec.facility_type].filter(Boolean).join(' ')
+  const facts = [cap(kind), beds && `${beds} beds`, doctors && `${doctors} doctor${doctors === '1' ? '' : 's'}`].filter(Boolean)
+
+  // Key stats
+  const found = rec.checks?.filter((c) => c.status === 'found').length ?? 0
+  const total = rec.checks?.length ?? 0
+  const beyond = rec.ranking_band === 'farther option'
+
+  // At most two heads-up messages on the front; the rest live in the details.
+  const headsUp = HEADS_UP.filter((h) => h.tags.some((t) => rec.tags.includes(t)))
+  const minor = Object.keys(MINOR).filter((t) => rec.tags.includes(t))
+  const reason = rankReason(rec, top)
+  const stop = (e) => e.stopPropagation()
+
   return (
     <article ref={ref} className={`card ${selected ? 'selected' : ''}`} onClick={onSelect}>
       <header className="card-head">
-        <span className="rank">{rec.rank}</span>
+        <span className="rank" aria-label={`Rank ${rec.rank}`}>{rec.rank}</span>
         <div className="title">
           <h3>{rec.name}</h3>
-          <p className="muted">{uniqueAddress || 'Address not listed'}</p>
+          {facts.length > 0 && <p className="facts">{facts.join(' · ')}</p>}
         </div>
-        <div className="right-meta">
-          <span className={`conf ${CONF_CLASS[rec.confidence.label]}`} title={rec.confidence.rule}>
-            {rec.confidence.label} confidence
-          </span>
+        <div className="badges">
+          <span className={`badge ${badge.cls}`}>{badge.text}</span>
+          {rec.verified_service === 'confirmed' && <span className="badge good">✓ Confirmed by phone</span>}
+          {rec.is_nearest_alternative && <span className="badge info">Closest option</span>}
           <LocationBadge lv={rec.location_validation} />
-          {rec.distance_km != null && <span className="dist">{rec.distance_km} km</span>}
         </div>
       </header>
 
-      <div className="tags">
-        {rec.tags.map((t) => <span key={t} className={WARN_TAGS.includes(t) ? 'tag warn' : 'tag'}>{t}</span>)}
+      <div className="stats">
+        <div className="stat">
+          <span className="stat-label">Travel</span>
+          <span className="stat-value">{rec.travel_min != null ? fmtMin(rec.travel_min) : rec.distance_km != null ? fmtKm(rec.distance_km) : '—'}</span>
+          <span className={`stat-sub ${beyond ? 'warn-text' : ''}`}>
+            {rec.travel_min != null && rec.distance_km != null ? fmtKm(rec.distance_km) : ''}
+            {rec.travel_budget_min != null && ` · ${beyond ? 'beyond' : 'within'} ${rec.travel_budget_min} min limit`}
+          </span>
+        </div>
+        {total > 0 ? (
+          <div className="stat">
+            <span className="stat-label">Key items found</span>
+            <span className="stat-value">{found} <span className="of">of {total}</span></span>
+            <span className="meter" aria-hidden>
+              {rec.checks.map((c) => <i key={c.key} className={`m-${c.status}`} />)}
+            </span>
+          </div>
+        ) : (
+          <div className="stat">
+            <span className="stat-label">Evidence</span>
+            <span className="stat-value">{cap(rec.confidence.tier) || '—'}</span>
+            <span className="stat-sub">in the facility's record</span>
+          </div>
+        )}
+        <div className="stat">
+          <span className="stat-label">{rec.score.mode === 'quality_first' ? 'Quality score' : 'Match score'}</span>
+          <span className="stat-value">{Math.round(rec.score.match)} <span className="of">/ 100</span></span>
+          <span className="meter bar-meter" aria-hidden><i style={{ width: `${Math.max(0, Math.min(100, rec.score.match))}%` }} /></span>
+        </div>
       </div>
 
-      {rec.stability_note && (
-        <div className={`stability ${rec.rank === 1 && rec.stable_first_in < 5 ? 'fragile' : ''}`}>
-          <b>{rec.rank === 1 ? 'How stable is #1?' : 'What if?'}</b> {rec.stability_note}
-        </div>
+      {(rec.is_nearest_alternative || rec.is_better_farther) && rec.tradeoff_note && (
+        <p className="tradeoff">{rec.tradeoff_note}</p>
       )}
 
-      {(rec.tradeoff_note || rec.counterfactual_note) && (
-        <div className="tradeoff">
-          {rec.tradeoff_note && <p><b>{rec.is_nearest_alternative ? 'Nearest option' : 'Trade-off'}:</b> {rec.tradeoff_note}</p>}
-          {rec.counterfactual_note && <p className="muted small">{rec.counterfactual_note}</p>}
-        </div>
+      {rec.pick_strength_note && <PickStrength rec={rec} />}
+      {rec.tip_note && <p className="tip"><span aria-hidden>💡</span> {rec.tip_note}</p>}
+
+      {headsUp.length > 0 && (
+        <ul className={`heads-up ${headsUp.some((h) => h.level === 'bad') ? 'bad' : ''}`}>
+          {headsUp.slice(0, 2).map((h) => <li key={h.text}>{h.text}</li>)}
+          {headsUp.length > 2 && <li className="more">+{headsUp.length - 2} more in details</li>}
+        </ul>
       )}
 
       {rec.call_to_confirm && (
-        <div className="confirm" onClick={(e) => e.stopPropagation()}>
-          <span><b>Call to confirm:</b> {rec.call_to_confirm}
-            {verify && <span className="verify-service">After calling:{' '}
-              <button className="vbtn ok" onClick={() => verify('service', 'confirmed', 'they offer this service')}>✓ They offer it</button>
-              <button className="vbtn no" onClick={() => verify('service', 'rejected', 'they do not offer this service')}>✗ Not available</button>
-            </span>}
-          </span>
-          {rec.phone && <a className="call" href={`tel:${rec.phone.replace(/[^+\d]/g, '')}`}>📞 Call</a>}
-        </div>
+        <p className="ask"><span aria-hidden>💬</span> <b>Before you go:</b> {rec.call_to_confirm}</p>
       )}
 
-      <div className="contacts">
-        <Contact icon="📞" label={rec.phone} value={rec.phone} href={rec.phone && `tel:${rec.phone.replace(/[^+\d]/g, '')}`} />
-        <Contact icon="🌐" label={rec.website && hostOf(rec.website)} value={rec.website}
-                 href={rec.website && (rec.website.startsWith('http') ? rec.website : `https://${rec.website}`)} />
-        <Contact icon="f" label="Facebook" value={rec.facebook} />
-        {rec.email && <Contact icon="✉" label={rec.email} value={rec.email} href={`mailto:${rec.email}`} />}
+      <div className="actions" onClick={stop}>
+        {rec.phone
+          ? <a className="btn primary-btn" href={telHref(rec.phone)}>📞 Call {rec.phone}</a>
+          : <span className="btn disabled">No phone listed</span>}
+        {rec.website && <a className="btn" href={withScheme(rec.website)} target="_blank" rel="noreferrer">Website</a>}
+        {rec.lat != null && (
+          <a className="btn" href={`https://www.google.com/maps/dir/?api=1&destination=${rec.lat},${rec.lon}`} target="_blank" rel="noreferrer">Directions</a>
+        )}
+        <button className="details-toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
+          {open ? 'Hide details' : 'Details'} <span aria-hidden>{open ? '▴' : '▾'}</span>
+        </button>
       </div>
 
-      <button className="why-toggle" onClick={(e) => { e.stopPropagation(); setOpen(!open) }} aria-expanded={open}>
-        {open ? '▾' : '▸'} Why this was recommended
-      </button>
-
       {open && (
-        <div className="why" onClick={(e) => e.stopPropagation()}>
-          <ScoreBreakdown score={rec.score} confidence={rec.confidence} distanceKm={rec.distance_km} rec={rec} />
+        <div className="details" onClick={stop}>
+          <p className="address"><span className="muted">Address:</span> {uniqueAddress || 'Not listed'}</p>
 
-          {rec.checks?.length > 0 && <Checklist checks={rec.checks} pattern={rec.match_pattern} verify={verify} />}
+          {rec.checks?.length > 0 && (
+            <Section title="What their record says" defaultOpen>
+              <Checklist checks={rec.checks} pattern={rec.match_pattern} verify={verify} />
+            </Section>
+          )}
 
-          <LocationChecks lv={rec.location_validation} />
+          <Section title="Exact quotes from the record" defaultOpen={!rec.checks?.length}>
+            <Quotes rec={rec} />
+          </Section>
 
-          <h5>Evidence from the facility's record <span className="muted">(verbatim, by column)</span></h5>
-          {rec.claims?.length > 0 ? (
-            <ul className="evidence">
-              {rec.claims.map((c, i) => {
-                const struck = c.claim_type === 'third_party' || c.claim_type === 'negated'
-                const quote = <q><Highlight text={c.text} pattern={rec.match_pattern} /></q>
-                return (
-                  <li key={i} className={struck ? 'rejected' : ''}>
-                    <span className="field">{c.field}</span>
-                    <span className={`claim claim-${c.claim_type}`} title={CLAIM_HELP[c.claim_type]}>{CLAIM_LABEL[c.claim_type] || c.claim_type}</span>
-                    {struck ? <s>{quote}</s> : quote}
-                  </li>
-                )
-              })}
-            </ul>
-          ) : (
-            <>
-              {rec.evidence.length === 0 && <p className="muted">No direct mention of this service in the record.</p>}
-              <ul className="evidence">
-                {rec.evidence.map((e, i) => (
-                  <li key={i}>
-                    <span className="field">{e.field}</span>
-                    <q><Highlight text={e.text} pattern={rec.match_pattern} /></q>
-                  </li>
-                ))}
+          {(rec.caveats.length > 0 || headsUp.length > 0 || minor.length > 0) && (
+            <Section title="Things to double-check" defaultOpen={headsUp.length > 2}>
+              <ul className="caveats">
+                {headsUp.slice(2).map((h) => <li key={h.text}>{h.text}</li>)}
+                {rec.caveats.map((c, i) => <li key={i}>{c}</li>)}
+                {minor.map((t) => <li key={t}>{MINOR[t]}</li>)}
               </ul>
-            </>
+            </Section>
           )}
 
-          {!rec.claims?.length && rec.rejected_evidence.length > 0 && (
-            <>
-              <h5>Mentions we did not count <span className="muted">(negative or referral-only)</span></h5>
-              <ul className="evidence rejected">
-                {rec.rejected_evidence.map((t, i) => <li key={i}><s>{t}</s></li>)}
-              </ul>
-            </>
+          {rec.location_validation && (
+            <Section title="Does the location add up?">
+              <LocationChecks lv={rec.location_validation} />
+            </Section>
           )}
 
-          {rec.caveats.length > 0 && (
-            <>
-              <h5>What we're unsure about</h5>
-              <ul className="caveats">{rec.caveats.map((c, i) => <li key={i}>{c}</li>)}</ul>
-            </>
+          {(reason || rec.counterfactual_note || (rec.tradeoff_note && !rec.is_nearest_alternative && !rec.is_better_farther)) && (
+            <Section title={rec.rank === 1 ? 'Why this is #1' : `Why this is #${rec.rank}`}>
+              {reason && <p>{reason}</p>}
+              {rec.tradeoff_note && !rec.is_nearest_alternative && !rec.is_better_farther && <p>{rec.tradeoff_note}</p>}
+              {rec.counterfactual_note && <p>{rec.counterfactual_note}</p>}
+            </Section>
           )}
 
-          <Comparison rec={rec} top={top} />
+          <Section title="How the score is calculated">
+            <ScoreBreakdown score={rec.score} confidence={rec.confidence} distanceKm={rec.distance_km} rec={rec} />
+          </Section>
 
-          {rec.sources.length > 0 && (
-            <>
-              <h5>Sources</h5>
+          {verify && (
+            <Section title="Record what you learned by phone">
+              <p className="small muted">Saved for everyone and reflected the next time this search runs.</p>
+              <div className="verify-service">
+                <button className="vbtn ok" onClick={() => verify('service', 'confirmed', 'they offer this service')}>✓ They offer this service</button>
+                <button className="vbtn no" onClick={() => verify('service', 'rejected', 'they do not offer this service')}>✗ Not available</button>
+              </div>
+            </Section>
+          )}
+
+          {(rec.sources.length > 0 || rec.email || rec.facebook) && (
+            <Section title="Sources and other contacts">
               <div className="sources">
+                {rec.email && <a href={`mailto:${rec.email}`}>✉ {rec.email}</a>}
+                {rec.facebook && <a href={withScheme(rec.facebook)} target="_blank" rel="noreferrer">Facebook</a>}
                 {rec.sources.filter((s, i, all) => all.findIndex((t) => hostOf(t) === hostOf(s)) === i).slice(0, 8).map((s) => (
                   <a key={s} href={s} target="_blank" rel="noreferrer">{hostOf(s)}</a>
                 ))}
               </div>
-            </>
+              <details className="raw">
+                <summary>Plain-text explanation</summary>
+                <p>{rec.why}</p>
+                <p className="mono">{rec.how}</p>
+              </details>
+            </Section>
           )}
-
-          <details className="raw">
-            <summary>Plain-text explanation</summary>
-            <p>{rec.why}</p>
-            <p className="mono">{rec.how}</p>
-          </details>
         </div>
       )}
     </article>

@@ -133,8 +133,11 @@ class Recommendation(BaseModel):
     identity_conflict: bool = False
     coherence: Optional[float] = None           # record coherence score 0-100
     verified_service: Optional[str] = None      # latest reviewer decision on the service itself: confirmed / rejected
-    stability_note: Optional[str] = None        # "Stays #1 in k of n what-if scenarios ..."
-    stable_first_in: Optional[int] = None
+    # "How solid is this pick?" (#1 only) and tips for the other cards
+    double_checks: list["DoubleCheck"] = []     # the ranking re-run with one doubt at a time
+    pick_strength: Optional[str] = None         # "Solid" / "Shaky"
+    pick_strength_note: Optional[str] = None    # "Shaky pick: if its one website is wrong, X is #1."
+    tip_note: Optional[str] = None              # "Would be your best option if you can travel up to 2 hours."
     location_validation: Optional[LocationValidation] = None
 
 
@@ -145,16 +148,20 @@ class Origin(BaseModel):
     matched_as: Optional[str] = None
 
 
-class Scenario(BaseModel):
-    scenario: str
-    winner: str
+class DoubleCheck(BaseModel):
+    kind: str                         # "data" (doubts about the records) or "situation" (the patient's circumstances)
+    label: str                        # "Facilities found on just one website are ignored"
+    still_first: Optional[bool] = None  # None = no facility passes this check
+    winner: Optional[str] = None      # who is #1 under this check
+
+
+Recommendation.model_rebuild()
 
 
 class RecommendResponse(BaseModel):
     query: Query
     service_label: Optional[str] = None
     service_key: Optional[str] = None
-    scenarios: list[Scenario] = []      # who would be #1 under each named what-if scenario
     origin: Origin = Origin()
     results: list[Recommendation] = []
     n_candidates: int = 0
