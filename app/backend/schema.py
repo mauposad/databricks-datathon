@@ -14,6 +14,7 @@ class Query(BaseModel):
     place: str = Field(description="PIN code, city, district, or 'lat,lon'")
     max_km: float = 75
     top_n: int = 5
+    public_only: bool = False     # government (public) facilities only
 
 
 class Service(BaseModel):
@@ -26,6 +27,25 @@ class Evidence(BaseModel):
     field: str            # source column, e.g. "procedure"
     label: str            # human label, e.g. "Listed procedure"
     text: str             # verbatim text from the record
+
+
+class Check(BaseModel):
+    """One evidence dimension for a headline service (not a clinical checklist)."""
+    key: str
+    label: str
+    status: str                   # found / unknown / contradicted
+    points: float
+    max_points: float
+    cited_text: Optional[str] = None
+    field: Optional[str] = None   # source column, or "service:<key>" when another service's evidence counts
+    claim_type: Optional[str] = None
+
+
+class Claim(BaseModel):
+    """A verbatim phrase that mentions the service, with how it was judged."""
+    text: str
+    field: str
+    claim_type: str               # direct / list_dump / hedged / third_party / negated
 
 
 class ScorePart(BaseModel):
@@ -90,6 +110,11 @@ class Recommendation(BaseModel):
     is_better_farther: bool = False             # clearly better, but beyond the travel budget
     tradeoff_note: Optional[str] = None
     counterfactual_note: Optional[str] = None   # "what would change this"
+    checks: list[Check] = []                    # evidence checklist (headline services)
+    claims: list[Claim] = []                    # every matched phrase with its claim type
+    call_to_confirm: Optional[str] = None       # one fact worth checking by phone
+    identity_conflict: bool = False
+    coherence: Optional[float] = None           # record coherence score 0-100
 
 
 class Origin(BaseModel):
@@ -130,3 +155,4 @@ class ChatResponse(BaseModel):
     query: Optional[Query] = None
     recommendations: Optional[RecommendResponse] = None
     parsed_by: str = ""                 # "llm" or "keywords"
+    reply_source: str = ""              # "llm" (passed the grounding check) or "template" (+ why)

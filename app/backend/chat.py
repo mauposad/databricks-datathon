@@ -34,7 +34,8 @@ def parse_with_llm(req: ChatRequest, services: list[Service]) -> dict:
     system = (
         "You turn a user's request for healthcare in India into a search query. Reply with JSON only:\n"
         '{"service": <one service key from the list or null>, "place": <PIN code, city, district or "lat,lon" or null>, '
-        '"max_km": <number or null>, "ask": <short follow-up question if service or place is missing, else null>}\n'
+        '"max_km": <number or null>, "public_only": <true if they want government / free / sarkari facilities, else false>, '
+        '"ask": <short follow-up question if service or place is missing, else null>}\n'
         "Map symptoms or synonyms to the closest service (e.g. 'kidney failure' -> dialysis, 'premature baby' -> nicu). "
         "Use earlier turns to fill anything the latest message leaves out.\nServices:\n" + catalog
     )
@@ -62,12 +63,13 @@ def parse_with_keywords(req: ChatRequest, services: list[Service]) -> dict:
     km = None
     if m := re.search(r"(\d{1,4})\s*(?:km|kilomet)", text):
         km = float(m.group(1))
+    public_only = bool(re.search(r"\b(government|govt|sarkari|public hospital|free)\b", text))
     ask = None
     if not service:
         ask = "Which service do you need? For example dialysis, NICU, emergency C-section or MRI."
     elif not place:
         ask = "Where are you? A PIN code, city or district works."
-    return {"service": service, "place": place, "max_km": km, "ask": ask}
+    return {"service": service, "place": place, "max_km": km, "public_only": public_only, "ask": ask}
 
 
 # ---------- answering ----------
@@ -112,6 +114,31 @@ def grounded_reply(req: ChatRequest, rec: RecommendResponse) -> str:
     return _llm([{"role": "system", "content": system}, {"role": "user", "content": user}], 300).strip()
 
 
+_NUM = re.compile(r"\d+(?:\.\d+)?")
+_FACILITY = re.compile(r"((?:[A-Z][\w.'&-]*\s+){1,6}(?:Hospitals?|Clinic|Centre|Center|Institute|Nursing Home|Medical College|University))")
+
+
+def grounding_problem(reply: str, rec: RecommendResponse) -> str | None:
+    """Return why the LLM reply is not grounded in the results, or None if it is.
+
+    Every number in the reply must appear somewhere in the facts the model was given (distances, minutes, scores,
+    PIN codes, phone numbers, evidence quotes...), and every facility-like name must be one of the results
+    (or the facility named in the safety line).
+    """
+    facts = " ".join([_facts(rec), rec.origin.label or "", rec.service_label or "", rec.safety_note or "",
+                      rec.search_note or "", str(len(rec.results)), str(rec.query.max_km), str(int(rec.query.max_km))])
+    allowed = set(_NUM.findall(facts)) | {"24", "7"}
+    for n in _NUM.findall(reply):
+        if n not in allowed and n.rstrip("0").rstrip(".") not in allowed:
+            return f"number {n} is not in the results"
+    names = [r.name.lower() for r in rec.results] + [(rec.safety_note or "").lower()]
+    for m in _FACILITY.findall(reply):
+        core = re.sub(r"^((the|a|an|at|to|is|and|or|go|try|visit|then)\s+)+", "", m.strip().lower())
+        if not any(core in n or n in core for n in names):
+            return f'"{m.strip()}" is not one of the results'
+    return None
+
+
 def handle(req: ChatRequest) -> ChatResponse:
     adapter = get_adapter()
     services = adapter.services()
@@ -130,11 +157,20 @@ def handle(req: ChatRequest) -> ChatResponse:
         return ChatResponse(reply=ask, parsed_by=parsed_by)
 
     max_km = req.max_km or p.get("max_km") or config.DEFAULT_MAX_KM
-    q = Query(service=service, place=place, max_km=float(max_km), top_n=config.DEFAULT_TOP_N)
+    q = Query(service=service, place=place, max_km=float(max_km), top_n=config.DEFAULT_TOP_N,
+              public_only=bool(p.get("public_only")))
     rec = adapter.recommend(q)
-    try:
-        reply = grounded_reply(req, rec) if parsed_by == "llm" else template_reply(rec)
-    except Exception as e:
-        log.warning("LLM reply failed, using template: %s", e)
-        reply = template_reply(rec)
-    return ChatResponse(reply=reply, query=q, recommendations=rec, parsed_by=parsed_by)
+    reply, source = template_reply(rec), "template"
+    if parsed_by == "llm" and rec.results:
+        try:
+            llm_reply = grounded_reply(req, rec)
+            problem = grounding_problem(llm_reply, rec)
+            if problem:
+                log.warning("LLM reply failed the grounding check (%s); using template", problem)
+                source = f"template (the AI-worded reply was discarded: {problem})"
+            else:
+                reply, source = llm_reply, "llm"
+        except Exception as e:
+            log.warning("LLM reply failed, using template: %s", e)
+            source = "template (the AI service did not answer)"
+    return ChatResponse(reply=reply, query=q, recommendations=rec, parsed_by=parsed_by, reply_source=source)

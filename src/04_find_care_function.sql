@@ -28,34 +28,81 @@
 -- COMMAND ----------
 
 CREATE OR REPLACE FUNCTION workspace.datathon.resolve_location(place STRING)
-RETURNS TABLE (lat DOUBLE, lon DOUBLE, matched_as STRING, label STRING)
-COMMENT 'Resolve a PIN code, "lat,lon", city or district name to coordinates'
+RETURNS TABLE (lat DOUBLE, lon DOUBLE, matched_as STRING, label STRING, note STRING)
+COMMENT 'Resolve a PIN code, "lat,lon", city, post office / village or district name (optionally ", state" or ", district") to coordinates'
 RETURN
-  WITH q AS (SELECT trim(place) AS p),
+  WITH q0 AS (SELECT trim(place) AS p),
+  q AS (  -- "Raghopur, Bihar" -> name "Raghopur" + hint "Bihar" (not for "lat,lon")
+    SELECT p,
+           CASE WHEN p RLIKE '^\\s*-?[0-9.]+\\s*,\\s*-?[0-9.]+\\s*$' THEN p ELSE trim(split_part(p, ',', 1)) END AS name,
+           CASE WHEN p RLIKE '^\\s*-?[0-9.]+\\s*,\\s*-?[0-9.]+\\s*$' OR NOT p LIKE '%,%' THEN NULL
+                ELSE upper(trim(substr(p, instr(p, ',') + 1))) END AS hint
+    FROM q0
+  ),
+  district_hit AS (  -- PIN areas of a district with that exact name
+    SELECT g.* FROM q JOIN workspace.datathon.silver_pincode_geo g
+      ON upper(g.district) = upper(q.name)
+     AND (q.hint IS NULL OR upper(g.state) LIKE concat(q.hint, '%'))
+  ),
   as_coords AS (
     SELECT try_cast(regexp_extract(p, '^\\s*(-?[0-9.]+)\\s*,\\s*(-?[0-9.]+)\\s*$', 1) AS DOUBLE) AS lat,
            try_cast(regexp_extract(p, '^\\s*(-?[0-9.]+)\\s*,\\s*(-?[0-9.]+)\\s*$', 2) AS DOUBLE) AS lon,
-           'coordinates' AS matched_as, p AS label, 1 AS pri
+           'coordinates' AS matched_as, p AS label, CAST(NULL AS STRING) AS note, 1 AS pri
     FROM q WHERE p RLIKE '^\\s*-?[0-9.]+\\s*,\\s*-?[0-9.]+\\s*$'
   ),
   as_pin AS (
-    SELECT g.lat, g.lon, 'pin_code', concat('PIN ', g.pincode, ' (', g.district, ', ', g.state, ')'), 2
+    SELECT g.lat, g.lon, 'pin_code', concat('PIN ', g.pincode, ' (', g.district, ', ', g.state, ')'), NULL, 2
     FROM q JOIN workspace.datathon.silver_pincode_geo g ON g.pincode = try_cast(q.p AS INT)
     WHERE q.p RLIKE '^[1-9][0-9]{5}$'
   ),
   as_city AS (  -- centre of facilities that confidently sit in a city of that name
-    SELECT percentile(f.lat, 0.5), percentile(f.lon, 0.5), 'city', concat(initcap(q.p), ' (city, from ', count(*), ' facilities)'), 3
+    SELECT percentile(f.lat, 0.5), percentile(f.lon, 0.5), 'city', concat(initcap(q.name), ' (city, from ', count(*), ' facilities)'), NULL, 3
     FROM q JOIN workspace.datathon.silver_facilities f
-      ON upper(trim(f.city_raw)) = upper(q.p) AND f.location_confidence = 'high'
-    GROUP BY q.p HAVING count(*) > 0
+      ON upper(trim(f.city_raw)) = upper(q.name) AND f.location_confidence = 'high'
+     AND (q.hint IS NULL OR upper(f.state) LIKE concat(q.hint, '%') OR upper(f.district) LIKE concat(q.hint, '%'))
+    GROUP BY q.name
+    -- a district of that name wins over a small locality of the same name elsewhere ("Vaishali" in Ghaziabad)
+    HAVING count(*) >= 10 OR NOT EXISTS (SELECT 1 FROM district_hit)
+        OR max(upper(f.district)) = upper(q.name)
+  ),
+  po_cand AS (  -- post offices / villages: India Post office names, suffix (BO, SO, HO, GPO) removed
+    SELECT g.pincode, g.district, g.state, g.lat, g.lon,
+           CASE WHEN po RLIKE '(H\\.?O|G\\.?P\\.?O)\\.?$' THEN 0 WHEN po RLIKE 'S\\.?O\\.?$' THEN 1 ELSE 2 END AS office_rank,
+           CASE WHEN po RLIKE '(H\\.?O|G\\.?P\\.?O)\\.?$' THEN 'head office' WHEN po RLIKE 'S\\.?O\\.?$' THEN 'sub office' ELSE 'branch office' END AS office_type
+    FROM q
+    JOIN workspace.datathon.silver_pincode_geo g ON g.lat IS NOT NULL
+    LATERAL VIEW explode(filter(g.place_names, x -> x RLIKE '\\s(B\\.?O|S\\.?O|H\\.?O|G\\.?P\\.?O)\\.?$'
+         AND trim(regexp_replace(x, '\\s+(B\\.?O|S\\.?O|H\\.?O|G\\.?P\\.?O)\\.?$', '')) = upper(q.name))) t AS po
+    WHERE q.name NOT RLIKE '^[0-9]'
+      AND (q.hint IS NULL OR upper(g.state) LIKE concat(q.hint, '%') OR upper(g.district) LIKE concat(q.hint, '%'))
+      -- a name that is also a district only resolves to a post office inside that district ("Vaishali" stays the district)
+      AND (NOT EXISTS (SELECT 1 FROM district_hit) OR upper(g.district) = upper(q.name))
+  ),
+  po_ranked AS (
+    SELECT c.*, count(*) OVER (PARTITION BY c.district, c.state) AS n_in_district,
+           count(*) OVER () AS n_matches,
+           array_sort(collect_set(concat(c.district, ' (', c.state, ')')) OVER ()) AS all_places
+    FROM po_cand c
+  ),
+  as_post_office AS (
+    SELECT lat, lon, 'post_office',
+           concat(initcap((SELECT name FROM q)), ' (post office, ', office_type, ', PIN ', CAST(pincode AS STRING), ', ', district, ', ', state, ')'),
+           CASE WHEN n_matches > 1 THEN concat('"', initcap((SELECT name FROM q)), '" matched ', CAST(n_matches AS STRING),
+                ' post offices; using the one in ', district, ' (', state, '). Others: ',
+                array_join(slice(array_remove(all_places, concat(district, ' (', state, ')')), 1, 4), '; '),
+                '. Type "', initcap((SELECT name FROM q)), ', <district>" to pick another.') END, 4
+    FROM po_ranked
+    ORDER BY office_rank, n_in_district DESC, pincode
+    LIMIT 1
   ),
   as_district AS (
-    SELECT percentile(g.lat, 0.5), percentile(g.lon, 0.5), 'district', concat(max(g.district), ' district, ', max(g.state)), 4
-    FROM q JOIN workspace.datathon.silver_pincode_geo g ON upper(g.district) = upper(q.p)
-    GROUP BY q.p HAVING count(*) > 0
+    SELECT percentile(lat, 0.5), percentile(lon, 0.5), 'district', concat(max(district), ' district, ', max(state)), NULL, 5
+    FROM district_hit
+    HAVING count(*) > 0
   )
-  SELECT lat, lon, matched_as, label FROM (
-    SELECT * FROM as_coords UNION ALL SELECT * FROM as_pin UNION ALL SELECT * FROM as_city UNION ALL SELECT * FROM as_district
+  SELECT lat, lon, matched_as, label, note FROM (
+    SELECT * FROM as_coords UNION ALL SELECT * FROM as_pin UNION ALL SELECT * FROM as_city
+    UNION ALL SELECT * FROM as_post_office UNION ALL SELECT * FROM as_district
   ) ORDER BY pri LIMIT 1;
 
 -- COMMAND ----------
@@ -109,7 +156,8 @@ CREATE OR REPLACE FUNCTION workspace.datathon.find_care(
   service STRING,
   place   STRING,
   max_km  DOUBLE DEFAULT 75,
-  top_n   INT    DEFAULT 5)
+  top_n   INT    DEFAULT 5,
+  operator_filter STRING DEFAULT NULL)  -- 'public' = government facilities only; NULL = all
 RETURNS TABLE (
   rank INT, facility_name STRING, distance_km DOUBLE, evidence_tier STRING, trust_score INT, match_score DOUBLE,
   why STRING, how STRING, caveats ARRAY<STRING>,
@@ -140,7 +188,9 @@ RETURNS TABLE (
   -- Phase 4: record coherence (identity) and the confidence cap
   record_coherence_score INT, coh_coords_pin INT, coh_city INT, coh_state INT, coh_located_in INT,
   coh_other_facility INT, coh_duplicate INT, identity_conflict BOOLEAN, identity_conflict_reason STRING,
-  possible_duplicate_names ARRAY<STRING>)
+  possible_duplicate_names ARRAY<STRING>,
+  -- Phase 5: one concrete fact to confirm by phone
+  call_to_confirm STRING)
 COMMENT 'Ranked facilities for a service near a place: quality-first within a travel-time budget, with cited evidence (why), score arithmetic (how), trade-offs and uncertainty'
 RETURN
   WITH loc AS (SELECT * FROM workspace.datathon.resolve_location(place)),
@@ -163,6 +213,7 @@ RETURN
     JOIN svc USING (service_key)
     CROSS JOIN loc
     WHERE g.lat IS NOT NULL AND workspace.datathon.haversine_km(loc.lat, loc.lon, g.lat, g.lon) <= greatest(300, max_km)
+      AND (operator_filter IS NULL OR g.operator_type = lower(operator_filter))
   ),
   radius AS (  -- auto-radius: double the search radius (up to 300 km) until a qualifying facility is inside it
     SELECT min(km) FILTER (WHERE qualifies) AS nearest_q_km,
@@ -213,6 +264,7 @@ RETURN
   notes AS (
     SELECT
       concat_ws(' ',
+        (SELECT note FROM loc),
         CASE WHEN r.eff_km > max_km THEN concat('Nothing with confirmed or probable evidence within ', CAST(CAST(max_km AS INT) AS STRING),
                                                 ' km, so the search was widened to ', CAST(CAST(r.eff_km AS INT) AS STRING), ' km.') END,
         CASE WHEN r.nearest_q_km IS NULL THEN 'No facility with confirmed or probable evidence within 300 km; every result is unconfirmed.'
@@ -320,7 +372,21 @@ RETURN
     evidence_checks, claims_cited, is_better_farther,
     CAST(record_coherence_score AS INT), CAST(coh_coords_pin AS INT), CAST(coh_city AS INT), CAST(coh_state AS INT),
     CAST(coh_located_in AS INT), CAST(coh_other_facility AS INT), CAST(coh_duplicate AS INT),
-    identity_conflict, nullif(identity_conflict_reason, ''), possible_duplicate_names
+    identity_conflict, nullif(identity_conflict_reason, ''), possible_duplicate_names,
+    -- the single most useful thing to ask: the missing evidence item worth the most points, else whether it exists at all
+    CASE
+      WHEN evidence_tier = 'weak' THEN concat('Ask whether they offer ', svc_label, ' at all: the record only implies it.')
+      WHEN evidence_tier = 'probable' THEN concat('Ask whether they perform ', svc_label,
+                                                  ': the record lists the department but never names the procedure.')
+      WHEN size(filter(evidence_checks, c -> c.status <> 'found')) > 0 THEN
+        concat('Ask about "', get(array_sort(filter(evidence_checks, c -> c.status <> 'found'),
+                                                   (a, b) -> b.max_points - a.max_points), 0).check_label,
+               '": the record does not mention it',
+               CASE WHEN get(array_sort(filter(evidence_checks, c -> c.status <> 'found'), (a, b) -> b.max_points - a.max_points), 0).status = 'contradicted'
+                    THEN ' (or says it is not available)' ELSE '' END, '.')
+      WHEN urgency = 'emergency' THEN concat('Ask whether they can handle ', svc_label, ' right now.')
+      ELSE concat('Ask whether ', svc_label, ' is available on the day you plan to go, and the cost.')
+    END
   FROM enriched
   WHERE rnk <= top_n OR is_near_alt OR is_better_farther
   ORDER BY rnk;

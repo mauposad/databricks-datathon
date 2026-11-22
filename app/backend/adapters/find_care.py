@@ -9,7 +9,7 @@ import time
 from typing import Any
 
 from .. import sql
-from ..schema import (Confidence, Evidence, Origin, Query, RecommendResponse, Recommendation, Score,
+from ..schema import (Check, Claim, Confidence, Evidence, Origin, Query, RecommendResponse, Recommendation, Score,
                       ScorePart, Service)
 from .base import Adapter
 
@@ -145,6 +145,12 @@ def to_recommendation(r: dict) -> Recommendation:
         support_found=r.get("support_found") or [],
         is_nearest_alternative=bool(r.get("is_nearest_alternative")), is_better_farther=bool(r.get("is_better_farther")),
         tradeoff_note=r.get("tradeoff_note"), counterfactual_note=r.get("counterfactual_note"),
+        checks=[Check(key=c["check_key"], label=c["check_label"], status=c["status"], points=c["points"] or 0,
+                      max_points=c["max_points"] or 0, cited_text=c.get("cited_text"), field=c.get("field"),
+                      claim_type=c.get("claim_type")) for c in (r.get("evidence_checks") or [])],
+        claims=[Claim(text=c["text"], field=c["field"], claim_type=c["claim_type"]) for c in (r.get("claims_cited") or [])],
+        call_to_confirm=r.get("call_to_confirm"),
+        identity_conflict=bool(r.get("identity_conflict")), coherence=r.get("record_coherence_score"),
     )
 
 
@@ -166,8 +172,10 @@ class FindCareAdapter(Adapter):
         return _cached("places", 3600, load)
 
     def recommend(self, q: Query) -> RecommendResponse:
-        rows = sql.query(f"SELECT * FROM {sql.fq('find_care')}(:service, :place, CAST(:max_km AS DOUBLE), CAST(:top_n AS INT))",
-                         {"service": q.service, "place": q.place, "max_km": q.max_km, "top_n": q.top_n})
+        rows = sql.query(f"SELECT * FROM {sql.fq('find_care')}(:service, :place, CAST(:max_km AS DOUBLE), CAST(:top_n AS INT), "
+                         f"CAST(:operator AS STRING))",
+                         {"service": q.service, "place": q.place, "max_km": q.max_km, "top_n": q.top_n,
+                          "operator": "public" if q.public_only else None})
         resp = RecommendResponse(query=q, adapter=self.name, method=QUALITY)
         if not rows:
             resp.notes.append(self._diagnose(q))

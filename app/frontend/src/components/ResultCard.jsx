@@ -19,6 +19,45 @@ function Highlight({ text, pattern }) {
   return parts.map((p, i) => (i % 2 === 1 && p ? <mark key={i}>{p}</mark> : p))
 }
 
+const CLAIM_LABEL = { direct: 'stated', list_dump: 'department list', hedged: 'guess', third_party: 'other institution', negated: 'negative' }
+const CLAIM_HELP = {
+  direct: 'A plain statement in the record. Counts fully.',
+  list_dump: 'Named only inside a long list of departments. Counts as moderate evidence at most.',
+  hedged: 'A guess, e.g. from photos ("appears to be"). Counts as weak evidence only.',
+  third_party: 'About another institution, a paper or a partner, not this facility. Not counted.',
+  negated: 'A negative or referral-only mention. Not counted.',
+}
+const STATUS_ICON = { found: '✓', unknown: '?', contradicted: '✗' }
+
+// The evidence dimensions for headline services: what the record shows, what it doesn't say, what it contradicts.
+function Checklist({ checks, pattern }) {
+  const got = checks.reduce((a, c) => a + c.points, 0)
+  const max = checks.reduce((a, c) => a + c.max_points, 0)
+  return (
+    <>
+      <h5>Evidence checklist <span className="muted">({got}/{max} points · evidence dimensions, not a clinical checklist)</span></h5>
+      <ul className="checklist">
+        {checks.map((c) => (
+          <li key={c.key} className={`check check-${c.status}`}>
+            <span className="icon" aria-label={c.status}>{STATUS_ICON[c.status] || '?'}</span>
+            <div>
+              <div>{c.label} <span className="muted small">{c.points}/{c.max_points}</span></div>
+              {c.cited_text
+                ? <div className="small">
+                    <span className="field">{c.field?.startsWith('service:') ? 'other service' : c.field}</span>
+                    {c.claim_type && c.claim_type !== 'direct' &&
+                      <span className={`claim claim-${c.claim_type}`} title={CLAIM_HELP[c.claim_type]}>{CLAIM_LABEL[c.claim_type]}</span>}
+                    {c.status === 'contradicted' ? <s><q>{c.cited_text}</q></s> : <q><Highlight text={c.cited_text} pattern={pattern} /></q>}
+                  </div>
+                : <div className="muted small">Not mentioned in the record (unknown, no penalty).</div>}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </>
+  )
+}
+
 function hostOf(url) {
   try { return new URL(url).hostname.replace(/^www\./, '') } catch { return url }
 }
@@ -125,6 +164,13 @@ export default function ResultCard({ rec, top, selected, onSelect }) {
         </div>
       )}
 
+      {rec.call_to_confirm && (
+        <div className="confirm" onClick={(e) => e.stopPropagation()}>
+          <span><b>Call to confirm:</b> {rec.call_to_confirm}</span>
+          {rec.phone && <a className="call" href={`tel:${rec.phone.replace(/[^+\d]/g, '')}`}>📞 Call</a>}
+        </div>
+      )}
+
       <div className="contacts">
         <Contact icon="📞" label={rec.phone} value={rec.phone} href={rec.phone && `tel:${rec.phone.replace(/[^+\d]/g, '')}`} />
         <Contact icon="🌐" label={rec.website && hostOf(rec.website)} value={rec.website}
@@ -141,18 +187,38 @@ export default function ResultCard({ rec, top, selected, onSelect }) {
         <div className="why" onClick={(e) => e.stopPropagation()}>
           <ScoreBreakdown score={rec.score} confidence={rec.confidence} distanceKm={rec.distance_km} rec={rec} />
 
-          <h5>Evidence from the facility's record <span className="muted">(verbatim, by column)</span></h5>
-          {rec.evidence.length === 0 && <p className="muted">No direct mention of this service in the record.</p>}
-          <ul className="evidence">
-            {rec.evidence.map((e, i) => (
-              <li key={i}>
-                <span className="field">{e.field}</span>
-                <q><Highlight text={e.text} pattern={rec.match_pattern} /></q>
-              </li>
-            ))}
-          </ul>
+          {rec.checks?.length > 0 && <Checklist checks={rec.checks} pattern={rec.match_pattern} />}
 
-          {rec.rejected_evidence.length > 0 && (
+          <h5>Evidence from the facility's record <span className="muted">(verbatim, by column)</span></h5>
+          {rec.claims?.length > 0 ? (
+            <ul className="evidence">
+              {rec.claims.map((c, i) => {
+                const struck = c.claim_type === 'third_party' || c.claim_type === 'negated'
+                const quote = <q><Highlight text={c.text} pattern={rec.match_pattern} /></q>
+                return (
+                  <li key={i} className={struck ? 'rejected' : ''}>
+                    <span className="field">{c.field}</span>
+                    <span className={`claim claim-${c.claim_type}`} title={CLAIM_HELP[c.claim_type]}>{CLAIM_LABEL[c.claim_type] || c.claim_type}</span>
+                    {struck ? <s>{quote}</s> : quote}
+                  </li>
+                )
+              })}
+            </ul>
+          ) : (
+            <>
+              {rec.evidence.length === 0 && <p className="muted">No direct mention of this service in the record.</p>}
+              <ul className="evidence">
+                {rec.evidence.map((e, i) => (
+                  <li key={i}>
+                    <span className="field">{e.field}</span>
+                    <q><Highlight text={e.text} pattern={rec.match_pattern} /></q>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+
+          {!rec.claims?.length && rec.rejected_evidence.length > 0 && (
             <>
               <h5>Mentions we did not count <span className="muted">(negative or referral-only)</span></h5>
               <ul className="evidence rejected">

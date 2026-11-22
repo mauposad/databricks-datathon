@@ -69,10 +69,18 @@ export default function App() {
 
           {result && (
             <div className="summary">
+              {result.chat && (
+                <div className="understood">
+                  Searching: <b>{result.service_label || result.query.service}</b> near <b>{result.query.place}</b>,
+                  {' '}{result.query.max_km} km{result.query.public_only ? ', government facilities only' : ''}
+                  <span className="muted"> (understood {result.chat.parsed_by === 'llm' ? 'by the AI model' : 'by keyword matching'};
+                  {' '}reply {result.chat.reply_source === 'llm' ? 'worded by the AI model and checked against these results' : `from a fixed template${result.chat.reply_source?.startsWith('template (') ? ': ' + result.chat.reply_source.slice(10, -1) : ''}`})</span>
+                </div>
+              )}
               <div>
                 <strong>{result.service_label || result.query.service}</strong> near{' '}
                 <strong>{result.origin?.label || result.query.place}</strong>
-                <span className="muted"> · within {result.query.max_km} km · {result.n_candidates} facilities with evidence in range</span>
+                <span className="muted"> · within {result.query.max_km} km{result.query.public_only ? ' · government facilities only' : ''} · {result.n_candidates} facilities with evidence in range</span>
               </div>
               <HowWeScore method={result.method} rule={results[0]?.confidence.rule} />
             </div>

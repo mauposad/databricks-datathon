@@ -128,7 +128,8 @@ the Marketplace share, which stays untouched.
 | `gold_facility_service_checks` | gold | one row per facility × service × check | found / unknown / contradicted, with the phrase that decided it; missing = unknown, never a penalty |
 | `ref_service_support` | reference | one row per service × supporting service | Supporting services that count toward readiness (e.g. ICU + blood bank + NICU for C-section) |
 | `ref_service_policy` | reference | one row per service | Travel-time budget and urgency (C-section 60 min, dialysis 45 min, cardiac surgery 240 min, ...) |
-| `find_care(service, place, max_km, top_n)` | function | | Quality-first ranking within the travel budget, with a `why` (citations), `how` (Quality arithmetic), nearest-option trade-off, safety line and search notes |
+| `resolve_location(place)` | function | | PIN code, `lat,lon`, city, **post office / village** ("Raghopur", or "Sadikpur, Bihar" to disambiguate) or district → coordinates, with a note when a name is ambiguous |
+| `find_care(service, place, max_km, top_n, operator_filter)` | function | | Quality-first ranking within the travel budget, with a `why` (citations), `how` (Quality arithmetic), evidence checklist, labelled quotes, call-to-confirm, nearest-option trade-off, safety line and search notes; `operator_filter => 'public'` for government facilities only |
 
 **How results are ranked** (also returned verbatim in every row's `ranking_rule`): among facilities reachable within
 the service's travel budget, rank by Quality (0–100 = evidence ≤50 + readiness ≤30 + record reliability ≤20 −
@@ -139,6 +140,8 @@ to 300 km. Travel time = straight-line km × 1.4 ÷ 35 km/h.
 ```sql
 SELECT * FROM workspace.datathon.find_care('dialysis', 'Jaipur');
 SELECT * FROM workspace.datathon.find_care('emergency c-section', '226001', 50, 5);
+SELECT * FROM workspace.datathon.find_care('trauma', 'Raghopur');                  -- village / post office
+SELECT * FROM workspace.datathon.find_care('emergency c-section', '226001', 50, 5, 'public');  -- government only
 ```
 
 ### Matching quality (hand-labelled evaluation)
