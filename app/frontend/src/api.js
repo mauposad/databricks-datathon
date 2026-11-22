@@ -17,6 +17,8 @@ async function call(path, opts = {}) {
 // Fire-and-forget: asks the backend to start the SQL warehouse while the user is still typing.
 export const warmup = () => call('/api/warmup', { method: 'POST' }).catch(() => {})
 export const getServices = () => call('/api/services')
+// Broad care groups; [] when the backend predates them, and the form falls back to the plain service list.
+export const getServiceGroups = () => call('/api/service-groups').catch(() => [])
 export const getPlaces = () => call('/api/places')
 export const recommend = (q) => call('/api/recommend', { method: 'POST', body: JSON.stringify(q) })
 export const chat = (message, history, max_km) =>

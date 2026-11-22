@@ -197,6 +197,18 @@ input.field::placeholder, .field input::placeholder { color: var(--muted); }
 .field-label .value { font-weight: var(--fw-regular); color: var(--muted); }
 .form-grid .switch-row { min-height: 44px; }
 .examples { display: flex; flex-wrap: wrap; gap: var(--s-2); align-items: center; font-size: var(--fs-2); }
+.field-group .field-icon { color: var(--muted); flex: none; }
+.care-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.care-item-label { font-weight: var(--fw-strong); }
+.care-item-hint { font-size: var(--fs-2); line-height: var(--lh-2); }
+.refine { display: flex; flex-direction: column; gap: var(--s-2); }
+.refine-chips { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.chip { display: inline-flex; align-items: center; gap: var(--s-1); min-height: 36px; padding: 0 var(--s-3);
+  border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: inherit; font: inherit;
+  font-size: var(--fs-3); cursor: pointer; }
+.chip:hover { background: var(--subtle); }
+.chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: var(--fw-strong); }
+.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ---------- Alerts and summary ---------- */
 .alert { border-radius: var(--r-md); padding: var(--s-3) var(--s-4); font-size: var(--fs-3); display: flex; gap: var(--s-3); align-items: flex-start; }

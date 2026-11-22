@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-22T15:20:04+00:00",
+ "generated_at": "2026-11-22T16:09:37+00:00",
  "source": "workspace.datathon",
  "services": [
   {
@@ -89,6 +89,34 @@
    ]
   },
   {
+   "key": "paediatrics",
+   "label": "Child health (paediatrics)",
+   "aliases": [
+    "paediatrics",
+    "pediatrics",
+    "paediatrician",
+    "pediatrician",
+    "child specialist",
+    "child doctor",
+    "vaccination",
+    "immunisation"
+   ]
+  },
+  {
+   "key": "dental",
+   "label": "Dental care",
+   "aliases": [
+    "dental",
+    "dentist",
+    "teeth",
+    "tooth",
+    "root canal",
+    "braces",
+    "orthodontist",
+    "dentures"
+   ]
+  },
+  {
    "key": "dialysis",
    "label": "Dialysis",
    "aliases": [
@@ -97,6 +125,20 @@
     "haemodialysis",
     "hemodialysis",
     "renal replacement"
+   ]
+  },
+  {
+   "key": "ent",
+   "label": "Ear, nose & throat (ENT)",
+   "aliases": [
+    "ent",
+    "ear nose throat",
+    "ear",
+    "hearing",
+    "hearing aid",
+    "tonsils",
+    "sinus",
+    "otolaryngology"
    ]
   },
   {
@@ -109,6 +151,21 @@
     "cesarean",
     "emergency c-section",
     "lscs"
+   ]
+  },
+  {
+   "key": "general_medicine",
+   "label": "General medicine (doctor visit)",
+   "aliases": [
+    "general medicine",
+    "general physician",
+    "doctor",
+    "gp",
+    "family doctor",
+    "internal medicine",
+    "fever",
+    "diabetes",
+    "blood pressure"
    ]
   },
   {
@@ -140,6 +197,20 @@
     "mri",
     "mri scan",
     "magnetic resonance"
+   ]
+  },
+  {
+   "key": "mental_health",
+   "label": "Mental health & de-addiction",
+   "aliases": [
+    "mental health",
+    "psychiatry",
+    "psychiatrist",
+    "de-addiction",
+    "addiction",
+    "depression",
+    "anxiety",
+    "counselling"
    ]
   },
   {
@@ -176,6 +247,33 @@
    ]
   },
   {
+   "key": "physiotherapy",
+   "label": "Physiotherapy & rehabilitation",
+   "aliases": [
+    "physiotherapy",
+    "physio",
+    "physical therapy",
+    "rehabilitation",
+    "rehab",
+    "occupational therapy",
+    "speech therapy"
+   ]
+  },
+  {
+   "key": "dermatology",
+   "label": "Skin care (dermatology)",
+   "aliases": [
+    "dermatology",
+    "dermatologist",
+    "skin",
+    "skin doctor",
+    "acne",
+    "eczema",
+    "psoriasis",
+    "hair loss"
+   ]
+  },
+  {
    "key": "trauma",
    "label": "Trauma & accident care",
    "aliases": [
@@ -184,6 +282,1095 @@
     "road accident",
     "polytrauma",
     "injury"
+   ]
+  }
+ ],
+ "service_groups": [
+  {
+   "key": "emergency",
+   "label": "Emergency & accidents",
+   "description": "Accidents, injuries, burns and anything that cannot wait",
+   "services": [
+    "emergency_24x7",
+    "trauma",
+    "burn_care"
+   ],
+   "default_service": "emergency_24x7",
+   "refine_question": "What kind of emergency?",
+   "terms": [
+    {
+     "term": "aapatkalin",
+     "service": "emergency_24x7"
+    },
+    {
+     "term": "accident",
+     "service": "trauma"
+    },
+    {
+     "term": "burn",
+     "service": "burn_care"
+    },
+    {
+     "term": "burned",
+     "service": "burn_care"
+    },
+    {
+     "term": "burns",
+     "service": "burn_care"
+    },
+    {
+     "term": "burnt",
+     "service": "burn_care"
+    },
+    {
+     "term": "casualty",
+     "service": "emergency_24x7"
+    },
+    {
+     "term": "chot",
+     "service": "trauma"
+    },
+    {
+     "term": "durghatna",
+     "service": "trauma"
+    },
+    {
+     "term": "emergency",
+     "service": null
+    },
+    {
+     "term": "emergency room",
+     "service": "emergency_24x7"
+    },
+    {
+     "term": "fainted",
+     "service": "emergency_24x7"
+    },
+    {
+     "term": "fell from",
+     "service": "trauma"
+    },
+    {
+     "term": "heavy bleeding",
+     "service": "emergency_24x7"
+    },
+    {
+     "term": "hit by a car",
+     "service": "trauma"
+    },
+    {
+     "term": "injured",
+     "service": "trauma"
+    },
+    {
+     "term": "injury",
+     "service": "trauma"
+    },
+    {
+     "term": "jal gaya",
+     "service": "burn_care"
+    },
+    {
+     "term": "poisoning",
+     "service": "emergency_24x7"
+    },
+    {
+     "term": "road accident",
+     "service": "trauma"
+    },
+    {
+     "term": "scald",
+     "service": "burn_care"
+    },
+    {
+     "term": "snake bite",
+     "service": "emergency_24x7"
+    },
+    {
+     "term": "unconscious",
+     "service": "emergency_24x7"
+    },
+    {
+     "term": "urgent",
+     "service": null
+    }
+   ]
+  },
+  {
+   "key": "maternity",
+   "label": "Pregnancy & childbirth",
+   "description": "Delivery, high-risk pregnancy and C-section",
+   "services": [
+    "high_risk_delivery",
+    "emergency_csection"
+   ],
+   "default_service": "high_risk_delivery",
+   "refine_question": "Do you need a C-section specifically?",
+   "terms": [
+    {
+     "term": "antenatal",
+     "service": null
+    },
+    {
+     "term": "baby delivery",
+     "service": null
+    },
+    {
+     "term": "c section",
+     "service": "emergency_csection"
+    },
+    {
+     "term": "c-section",
+     "service": "emergency_csection"
+    },
+    {
+     "term": "caesarean",
+     "service": "emergency_csection"
+    },
+    {
+     "term": "cesarean",
+     "service": "emergency_csection"
+    },
+    {
+     "term": "child birth",
+     "service": null
+    },
+    {
+     "term": "childbirth",
+     "service": null
+    },
+    {
+     "term": "garbhavastha",
+     "service": null
+    },
+    {
+     "term": "giving birth",
+     "service": null
+    },
+    {
+     "term": "gynaecologist",
+     "service": null
+    },
+    {
+     "term": "gynecologist",
+     "service": null
+    },
+    {
+     "term": "in labour",
+     "service": null
+    },
+    {
+     "term": "labor",
+     "service": null
+    },
+    {
+     "term": "labour",
+     "service": null
+    },
+    {
+     "term": "labour pain",
+     "service": null
+    },
+    {
+     "term": "maternity",
+     "service": null
+    },
+    {
+     "term": "maternity care",
+     "service": null
+    },
+    {
+     "term": "obstetrician",
+     "service": null
+    },
+    {
+     "term": "obstructed labour",
+     "service": "emergency_csection"
+    },
+    {
+     "term": "operation delivery",
+     "service": "emergency_csection"
+    },
+    {
+     "term": "paternity",
+     "service": null
+    },
+    {
+     "term": "prasav",
+     "service": null
+    },
+    {
+     "term": "pregnancy",
+     "service": null
+    },
+    {
+     "term": "pregnant",
+     "service": null
+    },
+    {
+     "term": "prenatal",
+     "service": null
+    },
+    {
+     "term": "water broke",
+     "service": null
+    }
+   ]
+  },
+  {
+   "key": "child",
+   "label": "Newborn & child care",
+   "description": "Child specialists, vaccination and newborn intensive care",
+   "services": [
+    "paediatrics",
+    "nicu"
+   ],
+   "default_service": "paediatrics",
+   "refine_question": "Does the baby need intensive care (NICU)?",
+   "terms": [
+    {
+     "term": "baby",
+     "service": null
+    },
+    {
+     "term": "baby not breathing",
+     "service": "nicu"
+    },
+    {
+     "term": "baccha",
+     "service": "paediatrics"
+    },
+    {
+     "term": "bachcha",
+     "service": "paediatrics"
+    },
+    {
+     "term": "child",
+     "service": null
+    },
+    {
+     "term": "child doctor",
+     "service": "paediatrics"
+    },
+    {
+     "term": "children",
+     "service": null
+    },
+    {
+     "term": "childrens doctor",
+     "service": "paediatrics"
+    },
+    {
+     "term": "incubator",
+     "service": "nicu"
+    },
+    {
+     "term": "infant",
+     "service": null
+    },
+    {
+     "term": "kid",
+     "service": null
+    },
+    {
+     "term": "kids",
+     "service": null
+    },
+    {
+     "term": "low birth weight",
+     "service": "nicu"
+    },
+    {
+     "term": "newborn",
+     "service": "nicu"
+    },
+    {
+     "term": "newborn jaundice",
+     "service": "nicu"
+    },
+    {
+     "term": "premature",
+     "service": "nicu"
+    },
+    {
+     "term": "premature baby",
+     "service": "nicu"
+    },
+    {
+     "term": "preterm",
+     "service": "nicu"
+    },
+    {
+     "term": "shishu",
+     "service": "paediatrics"
+    },
+    {
+     "term": "toddler",
+     "service": null
+    },
+    {
+     "term": "vaccine",
+     "service": "paediatrics"
+    },
+    {
+     "term": "vaccines",
+     "service": "paediatrics"
+    }
+   ]
+  },
+  {
+   "key": "heart",
+   "label": "Heart care",
+   "description": "Heart attack, angioplasty and heart surgery",
+   "services": [
+    "cath_lab",
+    "cardiac_surgery"
+   ],
+   "default_service": "cath_lab",
+   "refine_question": "Angioplasty or heart surgery?",
+   "terms": [
+    {
+     "term": "blockage",
+     "service": "cath_lab"
+    },
+    {
+     "term": "blocked artery",
+     "service": "cath_lab"
+    },
+    {
+     "term": "bypass",
+     "service": "cardiac_surgery"
+    },
+    {
+     "term": "cardiac",
+     "service": null
+    },
+    {
+     "term": "cardiologist",
+     "service": null
+    },
+    {
+     "term": "cardiology",
+     "service": null
+    },
+    {
+     "term": "chest pain",
+     "service": "cath_lab"
+    },
+    {
+     "term": "dil",
+     "service": null
+    },
+    {
+     "term": "heart",
+     "service": null
+    },
+    {
+     "term": "heart attack",
+     "service": "cath_lab"
+    },
+    {
+     "term": "hole in the heart",
+     "service": "cardiac_surgery"
+    },
+    {
+     "term": "seene mein dard",
+     "service": "cath_lab"
+    },
+    {
+     "term": "valve",
+     "service": "cardiac_surgery"
+    }
+   ]
+  },
+  {
+   "key": "cancer",
+   "label": "Cancer care",
+   "description": "Chemotherapy and radiotherapy",
+   "services": [
+    "oncology"
+   ],
+   "default_service": "oncology",
+   "refine_question": null,
+   "terms": [
+    {
+     "term": "cancer",
+     "service": "oncology"
+    },
+    {
+     "term": "chemo",
+     "service": "oncology"
+    },
+    {
+     "term": "kark rog",
+     "service": "oncology"
+    },
+    {
+     "term": "lump",
+     "service": "oncology"
+    },
+    {
+     "term": "oncologist",
+     "service": "oncology"
+    },
+    {
+     "term": "radiation",
+     "service": "oncology"
+    },
+    {
+     "term": "tumor",
+     "service": "oncology"
+    },
+    {
+     "term": "tumour",
+     "service": "oncology"
+    }
+   ]
+  },
+  {
+   "key": "kidney",
+   "label": "Kidney care & dialysis",
+   "description": "Dialysis for kidney failure",
+   "services": [
+    "dialysis"
+   ],
+   "default_service": "dialysis",
+   "refine_question": null,
+   "terms": [
+    {
+     "term": "gurda",
+     "service": "dialysis"
+    },
+    {
+     "term": "kidney",
+     "service": "dialysis"
+    },
+    {
+     "term": "kidney failure",
+     "service": "dialysis"
+    },
+    {
+     "term": "kidneys",
+     "service": "dialysis"
+    },
+    {
+     "term": "nephrologist",
+     "service": "dialysis"
+    },
+    {
+     "term": "renal failure",
+     "service": "dialysis"
+    }
+   ]
+  },
+  {
+   "key": "critical",
+   "label": "Intensive care (ICU)",
+   "description": "Critical care and ventilator support",
+   "services": [
+    "icu"
+   ],
+   "default_service": "icu",
+   "refine_question": null,
+   "terms": [
+    {
+     "term": "breathing problem",
+     "service": "icu"
+    },
+    {
+     "term": "critical",
+     "service": "icu"
+    },
+    {
+     "term": "critically ill",
+     "service": "icu"
+    },
+    {
+     "term": "life support",
+     "service": "icu"
+    },
+    {
+     "term": "on a ventilator",
+     "service": "icu"
+    },
+    {
+     "term": "very sick",
+     "service": "icu"
+    }
+   ]
+  },
+  {
+   "key": "imaging",
+   "label": "Scans & imaging",
+   "description": "MRI and CT scans",
+   "services": [
+    "mri",
+    "ct_scan"
+   ],
+   "default_service": null,
+   "refine_question": "Which scan do you need: MRI or CT?",
+   "terms": [
+    {
+     "term": "cat scan",
+     "service": "ct_scan"
+    },
+    {
+     "term": "ct",
+     "service": "ct_scan"
+    },
+    {
+     "term": "imaging",
+     "service": null
+    },
+    {
+     "term": "mri",
+     "service": "mri"
+    },
+    {
+     "term": "radiology",
+     "service": null
+    },
+    {
+     "term": "scan",
+     "service": null
+    },
+    {
+     "term": "scans",
+     "service": null
+    }
+   ]
+  },
+  {
+   "key": "bones",
+   "label": "Bones & joints",
+   "description": "Fractures, joint replacement and orthopaedic care",
+   "services": [
+    "orthopedic_surgery",
+    "physiotherapy"
+   ],
+   "default_service": "orthopedic_surgery",
+   "refine_question": "Surgery or physiotherapy?",
+   "terms": [
+    {
+     "term": "bone",
+     "service": null
+    },
+    {
+     "term": "bones",
+     "service": null
+    },
+    {
+     "term": "broken arm",
+     "service": "orthopedic_surgery"
+    },
+    {
+     "term": "broken bone",
+     "service": "orthopedic_surgery"
+    },
+    {
+     "term": "broken leg",
+     "service": "orthopedic_surgery"
+    },
+    {
+     "term": "fracture",
+     "service": "orthopedic_surgery"
+    },
+    {
+     "term": "haddi",
+     "service": null
+    },
+    {
+     "term": "haddi toot",
+     "service": "orthopedic_surgery"
+    },
+    {
+     "term": "hip replacement",
+     "service": "orthopedic_surgery"
+    },
+    {
+     "term": "joint",
+     "service": null
+    },
+    {
+     "term": "joints",
+     "service": null
+    },
+    {
+     "term": "knee replacement",
+     "service": "orthopedic_surgery"
+    },
+    {
+     "term": "orthopaedic",
+     "service": null
+    },
+    {
+     "term": "orthopaedic care",
+     "service": null
+    },
+    {
+     "term": "orthopaedics",
+     "service": null
+    },
+    {
+     "term": "orthopedic",
+     "service": null
+    },
+    {
+     "term": "orthopedic care",
+     "service": null
+    },
+    {
+     "term": "orthopedics",
+     "service": null
+    }
+   ]
+  },
+  {
+   "key": "rehab",
+   "label": "Physiotherapy & rehab",
+   "description": "Physiotherapy and recovery after injury, stroke or surgery",
+   "services": [
+    "physiotherapy"
+   ],
+   "default_service": "physiotherapy",
+   "refine_question": null,
+   "terms": [
+    {
+     "term": "back pain",
+     "service": "physiotherapy"
+    },
+    {
+     "term": "frozen shoulder",
+     "service": "physiotherapy"
+    },
+    {
+     "term": "joint pain",
+     "service": "physiotherapy"
+    },
+    {
+     "term": "knee pain",
+     "service": "physiotherapy"
+    },
+    {
+     "term": "neck pain",
+     "service": "physiotherapy"
+    },
+    {
+     "term": "paralysis",
+     "service": "physiotherapy"
+    },
+    {
+     "term": "physical therapy",
+     "service": "physiotherapy"
+    },
+    {
+     "term": "physio",
+     "service": "physiotherapy"
+    },
+    {
+     "term": "physiotherapist",
+     "service": "physiotherapy"
+    },
+    {
+     "term": "rehab",
+     "service": "physiotherapy"
+    },
+    {
+     "term": "sports injury",
+     "service": "physiotherapy"
+    },
+    {
+     "term": "stroke recovery",
+     "service": "physiotherapy"
+    }
+   ]
+  },
+  {
+   "key": "brain",
+   "label": "Brain & spine",
+   "description": "Brain and spine surgery, head injuries",
+   "services": [
+    "neurosurgery"
+   ],
+   "default_service": "neurosurgery",
+   "refine_question": null,
+   "terms": [
+    {
+     "term": "brain",
+     "service": "neurosurgery"
+    },
+    {
+     "term": "brain haemorrhage",
+     "service": "neurosurgery"
+    },
+    {
+     "term": "brain hemorrhage",
+     "service": "neurosurgery"
+    },
+    {
+     "term": "brain tumor",
+     "service": "neurosurgery"
+    },
+    {
+     "term": "head injury",
+     "service": "neurosurgery"
+    },
+    {
+     "term": "slipped disc",
+     "service": "neurosurgery"
+    },
+    {
+     "term": "spine",
+     "service": "neurosurgery"
+    },
+    {
+     "term": "stroke",
+     "service": "neurosurgery"
+    }
+   ]
+  },
+  {
+   "key": "eyes",
+   "label": "Eye care",
+   "description": "Cataract and eye surgery",
+   "services": [
+    "cataract"
+   ],
+   "default_service": "cataract",
+   "refine_question": null,
+   "terms": [
+    {
+     "term": "aankh",
+     "service": "cataract"
+    },
+    {
+     "term": "blurry vision",
+     "service": "cataract"
+    },
+    {
+     "term": "eye",
+     "service": "cataract"
+    },
+    {
+     "term": "eye doctor",
+     "service": "cataract"
+    },
+    {
+     "term": "eyes",
+     "service": "cataract"
+    },
+    {
+     "term": "motiyabind",
+     "service": "cataract"
+    },
+    {
+     "term": "ophthalmologist",
+     "service": "cataract"
+    },
+    {
+     "term": "vision",
+     "service": "cataract"
+    }
+   ]
+  },
+  {
+   "key": "mental",
+   "label": "Mental health",
+   "description": "Psychiatry, counselling and de-addiction",
+   "services": [
+    "mental_health"
+   ],
+   "default_service": "mental_health",
+   "refine_question": null,
+   "terms": [
+    {
+     "term": "alcohol",
+     "service": "mental_health"
+    },
+    {
+     "term": "anxious",
+     "service": "mental_health"
+    },
+    {
+     "term": "depressed",
+     "service": "mental_health"
+    },
+    {
+     "term": "drinking problem",
+     "service": "mental_health"
+    },
+    {
+     "term": "drug addiction",
+     "service": "mental_health"
+    },
+    {
+     "term": "nasha mukti",
+     "service": "mental_health"
+    },
+    {
+     "term": "panic attacks",
+     "service": "mental_health"
+    },
+    {
+     "term": "psychologist",
+     "service": "mental_health"
+    },
+    {
+     "term": "sleep problem",
+     "service": "mental_health"
+    },
+    {
+     "term": "stress",
+     "service": "mental_health"
+    },
+    {
+     "term": "suicidal",
+     "service": "mental_health"
+    },
+    {
+     "term": "therapist",
+     "service": "mental_health"
+    }
+   ]
+  },
+  {
+   "key": "general",
+   "label": "General doctor visit",
+   "description": "Fever, diabetes, blood pressure and everyday illness",
+   "services": [
+    "general_medicine"
+   ],
+   "default_service": "general_medicine",
+   "refine_question": null,
+   "terms": [
+    {
+     "term": "bp",
+     "service": "general_medicine"
+    },
+    {
+     "term": "bukhar",
+     "service": "general_medicine"
+    },
+    {
+     "term": "check-up",
+     "service": "general_medicine"
+    },
+    {
+     "term": "checkup",
+     "service": "general_medicine"
+    },
+    {
+     "term": "cold",
+     "service": "general_medicine"
+    },
+    {
+     "term": "cough",
+     "service": "general_medicine"
+    },
+    {
+     "term": "dengue",
+     "service": "general_medicine"
+    },
+    {
+     "term": "diarrhea",
+     "service": "general_medicine"
+    },
+    {
+     "term": "diarrhoea",
+     "service": "general_medicine"
+    },
+    {
+     "term": "doctor",
+     "service": "general_medicine"
+    },
+    {
+     "term": "high blood pressure",
+     "service": "general_medicine"
+    },
+    {
+     "term": "malaria",
+     "service": "general_medicine"
+    },
+    {
+     "term": "physician",
+     "service": "general_medicine"
+    },
+    {
+     "term": "sugar",
+     "service": "general_medicine"
+    },
+    {
+     "term": "typhoid",
+     "service": "general_medicine"
+    },
+    {
+     "term": "vomiting",
+     "service": "general_medicine"
+    }
+   ]
+  },
+  {
+   "key": "dental",
+   "label": "Dental care",
+   "description": "Teeth, gums and braces",
+   "services": [
+    "dental"
+   ],
+   "default_service": "dental",
+   "refine_question": null,
+   "terms": [
+    {
+     "term": "cavity",
+     "service": "dental"
+    },
+    {
+     "term": "daant",
+     "service": "dental"
+    },
+    {
+     "term": "dant",
+     "service": "dental"
+    },
+    {
+     "term": "gums",
+     "service": "dental"
+    },
+    {
+     "term": "tooth pain",
+     "service": "dental"
+    },
+    {
+     "term": "toothache",
+     "service": "dental"
+    }
+   ]
+  },
+  {
+   "key": "ent",
+   "label": "Ear, nose & throat",
+   "description": "Hearing, sinus and throat problems",
+   "services": [
+    "ent"
+   ],
+   "default_service": "ent",
+   "refine_question": null,
+   "terms": [
+    {
+     "term": "deaf",
+     "service": "ent"
+    },
+    {
+     "term": "ear infection",
+     "service": "ent"
+    },
+    {
+     "term": "ear pain",
+     "service": "ent"
+    },
+    {
+     "term": "gala",
+     "service": "ent"
+    },
+    {
+     "term": "hearing loss",
+     "service": "ent"
+    },
+    {
+     "term": "kaan",
+     "service": "ent"
+    },
+    {
+     "term": "nose",
+     "service": "ent"
+    },
+    {
+     "term": "sinusitis",
+     "service": "ent"
+    },
+    {
+     "term": "sore throat",
+     "service": "ent"
+    },
+    {
+     "term": "throat",
+     "service": "ent"
+    }
+   ]
+  },
+  {
+   "key": "skin",
+   "label": "Skin & hair",
+   "description": "Rashes, acne, allergies and hair loss",
+   "services": [
+    "dermatology"
+   ],
+   "default_service": "dermatology",
+   "refine_question": null,
+   "terms": [
+    {
+     "term": "fungal infection",
+     "service": "dermatology"
+    },
+    {
+     "term": "hair fall",
+     "service": "dermatology"
+    },
+    {
+     "term": "itching",
+     "service": "dermatology"
+    },
+    {
+     "term": "itchy",
+     "service": "dermatology"
+    },
+    {
+     "term": "khujli",
+     "service": "dermatology"
+    },
+    {
+     "term": "pimples",
+     "service": "dermatology"
+    },
+    {
+     "term": "rash",
+     "service": "dermatology"
+    },
+    {
+     "term": "skin allergy",
+     "service": "dermatology"
+    },
+    {
+     "term": "twacha",
+     "service": "dermatology"
+    }
+   ]
+  },
+  {
+   "key": "blood",
+   "label": "Blood bank",
+   "description": "Blood transfusion and blood donors",
+   "services": [
+    "blood_bank"
+   ],
+   "default_service": "blood_bank",
+   "refine_question": null,
+   "terms": [
+    {
+     "term": "blood",
+     "service": "blood_bank"
+    },
+    {
+     "term": "blood donor",
+     "service": "blood_bank"
+    },
+    {
+     "term": "khoon",
+     "service": "blood_bank"
+    },
+    {
+     "term": "transfusion",
+     "service": "blood_bank"
+    }
    ]
   }
  ],

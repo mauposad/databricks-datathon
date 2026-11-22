@@ -23,6 +23,22 @@ class Service(BaseModel):
     aliases: list[str] = []
 
 
+class ServiceTerm(BaseModel):
+    term: str                     # everyday word, symptom or Hindi/Hinglish word, lower case
+    service: Optional[str] = None # the one service it points at, or None for the group's default
+
+
+class ServiceGroup(BaseModel):
+    """A broad, user-friendly care area ("Pregnancy & childbirth") over one or more specific services."""
+    key: str
+    label: str
+    description: str = ""
+    services: list[str] = []                  # member service keys; services[0] is listed first
+    default_service: Optional[str] = None     # used when the user names only the group; None = ask refine_question
+    refine_question: Optional[str] = None
+    terms: list[ServiceTerm] = []
+
+
 class Evidence(BaseModel):
     field: str            # source column, e.g. "procedure"
     label: str            # human label, e.g. "Listed procedure"

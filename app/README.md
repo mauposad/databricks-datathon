@@ -8,7 +8,8 @@ app/
   requirements.txt      Python deps (installed by Apps)
   package.json          Frontend deps; Apps runs `npm install` + `npm run build` -> static/
   backend/
-    main.py             FastAPI: /api/services, /api/places, /api/recommend, /api/chat, serves static/
+    terms.py            everyday words -> one service key (search box, chat fallback, /api/recommend), in memory
+    main.py             FastAPI: /api/services, /api/service-groups, /api/places, /api/recommend, /api/chat, serves static/
     schema.py           The universal contract (Query, Recommendation, ...). Keep stable.
     adapters/           One adapter per data source; find_care.py is the default
     chat.py             LLM query extraction + grounded reply, with keyword/template fallback

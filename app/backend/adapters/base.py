@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from ..schema import Query, RecommendResponse, Service
+from ..schema import Query, RecommendResponse, Service, ServiceGroup
 
 
 class Adapter(ABC):
@@ -16,6 +16,10 @@ class Adapter(ABC):
     @abstractmethod
     def services(self) -> list[Service]:
         """Searchable services, for the dropdown and for chat parsing."""
+
+    def service_groups(self) -> list[ServiceGroup]:
+        """Optional broad care groups over the services (with everyday terms), for the picker and for chat parsing."""
+        return []
 
     def places(self) -> list[str]:
         """Optional place suggestions (districts, cities) for autocomplete."""

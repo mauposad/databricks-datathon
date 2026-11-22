@@ -20,7 +20,7 @@
 -- MAGIC * it matches the service's `text_regex` (or `equipment_regex` for equipment) and **not** its `exclude_regex`
 -- MAGIC   (e.g. bile-duct stents are not a cath lab, "atraumatic extraction" is not trauma care, "brain bypass" is not cardiac surgery);
 -- MAGIC * it is not about an ambulance or vehicle (an ambulance "labelled ICU, NICU" is not a NICU);
--- MAGIC * the facility is not dental-only (or eye-only, except for cataract): see `scope_family` in silver.
+-- MAGIC * the facility is not dental-only (except for dental care) or eye-only (except for cataract): see `scope_family` in silver.
 -- MAGIC
 -- MAGIC **Claim type of every cited phrase** (stored in `claims_cited` so the app can label each quote):
 -- MAGIC
@@ -138,7 +138,43 @@ FROM VALUES
    array('cataract', 'eye surgery', 'phaco', 'phacoemulsification'),
    'cataract|phaco|\\biol\\b|intraocular lens',
    'phaco|operating microscope|biometr',
-   array('ophthalmology'), false)
+   array('ophthalmology'), false),
+  -- Broad outpatient services (added with the service groups in src/06). Planned / everyday care, so a clinic is fine.
+  ('physiotherapy', 'Physiotherapy & rehabilitation',
+   array('physiotherapy', 'physio', 'physical therapy', 'rehabilitation', 'rehab', 'occupational therapy', 'speech therapy'),
+   'physiotherap|physical therap|\\bphysio\\b|rehabilitat|occupational therap|speech therap|\\bpmr\\b',
+   'traction|\\btens\\b|interferential|short ?wave|ultrasound therapy|cpm machine|treadmill|exercise (equipment|machine)|parallel bars',
+   array('physicalmedicineandrehabilitation', 'physiotherapy', 'painmedicinepmr', 'sportsmedicinepmr', 'pediatricrehabilitationmedicine'), false),
+  ('mental_health', 'Mental health & de-addiction',
+   array('mental health', 'psychiatry', 'psychiatrist', 'de-addiction', 'addiction', 'depression', 'anxiety', 'counselling'),
+   'psychiatr|mental (health|illness|disorders?|wellness)|de-?addiction|addiction|psychotherap|psycholog|depression|anxiety|schizophren|bipolar|\\bocd\\b|\\badhd\\b|autism',
+   '\\bect\\b|electroconvulsive|\\brtms\\b|biofeedback',
+   array('psychiatry', 'addictionpsychiatry', 'neuropsychiatry', 'childandadolescentpsychiatry'), false),
+  ('paediatrics', 'Child health (paediatrics)',
+   array('paediatrics', 'pediatrics', 'paediatrician', 'pediatrician', 'child specialist', 'child doctor', 'vaccination', 'immunisation'),
+   'paediatric|pediatric|child specialist|child(ren)?.?s (hospital|clinic|care|ward|opd|health)|child health|vaccinat|immuni[sz]ation|well[- ]baby|newborn care',
+   'infant warmer|baby warmer|phototherapy|pa?ediatric ventilator|nebuli[sz]er',
+   array('pediatrics', 'developmental–behavioralpediatrics', 'pediatriccriticalcaremedicine', 'maternalandchildhealth'), false),
+  ('dental', 'Dental care',
+   array('dental', 'dentist', 'teeth', 'tooth', 'root canal', 'braces', 'orthodontist', 'dentures'),
+   'dental|dentist|tooth|teeth|root canal|orthodont|\\bbraces\\b|dentur|periodont|endodont|prosthodont|oral (surgery|surgeon|care|hygiene)|maxillofacial|gum (disease|treatment|surgery)',
+   'dental chair|\\brvg\\b|\\bopg\\b|intra-?oral',
+   array('dentistry', 'generaldentistry', 'orthodontics', 'pediatricdentistry', 'cosmeticdentistry', 'aestheticdentistry', 'oralandmaxillofacialsurgery', 'endodontics', 'periodontics', 'prosthodontics'), false),
+  ('ent', 'Ear, nose & throat (ENT)',
+   array('ent', 'ear nose throat', 'ear', 'hearing', 'hearing aid', 'tonsils', 'sinus', 'otolaryngology'),
+   'otorhinolaryng|otolaryng|\\bent\\b|ear,? nose|tonsil|adenoid|septoplast|sinus (surgery|treatment)|\\bfess\\b|tympanoplast|mastoid|cochlear|audiolog|audiometr|hearing (aid|test|loss|impair)',
+   'audiometer|tympanomet|\\bbera\\b|\\boae\\b|ent (microscope|workstation|unit|endoscope)',
+   array('otolaryngology', 'headandnecksurgeryotolaryngology', 'pediatricotolaryngology'), false),
+  ('dermatology', 'Skin care (dermatology)',
+   array('dermatology', 'dermatologist', 'skin', 'skin doctor', 'acne', 'eczema', 'psoriasis', 'hair loss'),
+   'dermatolog|skin (care|clinic|treatment|diseases?|specialist|problems?|disorders?|infections?|allerg|condition)|\\bacne\\b|psoria|eczema|vitiligo|cosmetolog|hair (loss|fall|transplant)|laser (hair|skin)|chemical peel|leprosy|trichology',
+   'dermatoscope|derma ?roller|q-?switch|co2 laser|fractional laser',
+   array('dermatology', 'cosmeticdermatology', 'pediatricdermatology'), false),
+  ('general_medicine', 'General medicine (doctor visit)',
+   array('general medicine', 'general physician', 'doctor', 'gp', 'family doctor', 'internal medicine', 'fever', 'diabetes', 'blood pressure'),
+   'general medicine|internal medicine|general physician|family (medicine|physician|doctor)|general practi(ce|tioner)|\\bgp\\b|diabet|hypertension|(fever|infection|infectious disease)s? (treatment|clinic|management|care)|physician consultation|(medicine|medical) opd|primary (health ?)?care',
+   '\\becg\\b|glucometer|sphygmomanometer|bp (apparatus|monitor)',
+   array('internalmedicine', 'familymedicine', 'generalmedicine', 'geriatricsinternalmedicine'), false)
 AS t(service_key, service_label, aliases, text_regex, equipment_regex, specialties, needs_hospital)
 LEFT JOIN VALUES
   -- tooth / facial trauma in dentistry, psychological trauma, "cerebrovascular accident" (= stroke)
@@ -148,7 +184,16 @@ LEFT JOIN VALUES
   -- brain / gastric / peripheral bypass is not cardiac surgery
   ('cardiac_surgery', 'brain bypass|gastric bypass|blood vessel bypass|vascular bypass|femoro|fem-pop|bariatric'),
   ('burn_care', 'heartburn|burning (sensation|micturition|feet|eyes)'),
-  ('mri', 'mri (report|referral|film)s?\\b')
+  ('mri', 'mri (report|referral|film)s?\\b'),
+  -- "full mouth rehabilitation" is dentistry; drug / alcohol rehab is mental health; cardiac rehab is not physiotherapy here
+  ('physiotherapy', 'mouth|dental|tooth|teeth|implant prosthe|drug|alcohol|addict|substance|de-?toxif|psychiatr|mental|cardiac rehab|nasha'),
+  ('mental_health', 'dental|tooth|teeth'),
+  -- paediatric dentistry / ophthalmology belong to dental / eye care
+  ('paediatrics', 'dent|tooth|teeth|ophthalm|squint|strabism|\\beye'),
+  ('dental', 'dental (college|council)'),
+  ('ent', 'dental|tooth|teeth'),
+  ('dermatology', 'graft|skin[- ]to[- ]skin|traction|suture'),
+  ('general_medicine', 'gestational|diabetic (retinopathy|foot surgery)|retina|ophthalm|\\beye')
 AS x(service_key, exclude_regex) ON x.service_key = t.service_key;
 
 -- COMMAND ----------
@@ -253,8 +298,8 @@ claims AS (
   FROM workspace.datathon.silver_facilities f
   CROSS JOIN workspace.datathon.ref_services s
   LEFT JOIN matched_agg m ON m.facility_id = f.facility_id AND m.service_key = s.service_key
-  -- specialty scope gate: dental-only facilities match nothing here; eye-only facilities only match cataract
-  WHERE NOT coalesce(f.scope_family = 'dental', false)
+  -- specialty scope gate: dental-only facilities only match dental care; eye-only facilities only match cataract
+  WHERE NOT coalesce(f.scope_family = 'dental' AND s.service_key <> 'dental', false)
     AND NOT coalesce(f.scope_family = 'eye' AND s.service_key <> 'cataract', false)
 ),
 counted AS (
@@ -648,7 +693,12 @@ AS SELECT * FROM VALUES
   ('emergency_24x7', 'icu', 'ICU', 4), ('emergency_24x7', 'ct_scan', 'CT', 3), ('emergency_24x7', 'blood_bank', 'blood bank', 3),
   ('blood_bank', 'emergency_24x7', '24×7 emergency', 4), ('blood_bank', 'icu', 'ICU', 3), ('blood_bank', 'emergency_csection', 'C-section', 3),
   ('orthopedic_surgery', 'blood_bank', 'blood bank', 4), ('orthopedic_surgery', 'icu', 'ICU', 3), ('orthopedic_surgery', 'ct_scan', 'CT', 3),
-  ('cataract', 'emergency_24x7', '24×7 emergency', 0)
+  ('cataract', 'emergency_24x7', '24×7 emergency', 0),
+  ('physiotherapy', 'orthopedic_surgery', 'orthopaedics', 5), ('physiotherapy', 'neurosurgery', 'neurosurgery', 5),
+  ('paediatrics', 'nicu', 'NICU', 4), ('paediatrics', 'emergency_24x7', '24×7 emergency', 3), ('paediatrics', 'icu', 'ICU', 3),
+  ('general_medicine', 'emergency_24x7', '24×7 emergency', 4), ('general_medicine', 'icu', 'ICU', 3), ('general_medicine', 'blood_bank', 'blood bank', 3),
+  ('mental_health', 'emergency_24x7', '24×7 emergency', 0), ('dental', 'emergency_24x7', '24×7 emergency', 0),
+  ('ent', 'emergency_24x7', '24×7 emergency', 0), ('dermatology', 'emergency_24x7', '24×7 emergency', 0)
 AS t(service_key, support_service, support_label, points);
 
 -- COMMAND ----------

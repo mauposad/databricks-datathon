@@ -3,7 +3,7 @@ resources:
     build_facility_tables:
       name: build_facility_tables
       description: >
-        Rebuilds workspace.datathon: silver PIN geography, silver facilities, gold facility-service evidence,
+        Rebuilds workspace.datathon: silver PIN geography, silver facilities, gold facility-service evidence, the broad service groups (06),
         the find_care() function and the district planner. Runs location_validation_scoring first (repaired rows +
         per-cluster location scores); otherwise reads only from the Virtue Foundation Marketplace share.
       tasks:
@@ -31,6 +31,13 @@ resources:
             - task_key: silver_facilities
           notebook_task:
             notebook_path: ../src/03_gold_facility_services.sql
+            warehouse_id: ${var.warehouse_id}
+
+        - task_key: service_groups
+          depends_on:
+            - task_key: gold_facility_services
+          notebook_task:
+            notebook_path: ../src/06_ref_service_groups.sql
             warehouse_id: ${var.warehouse_id}
 
         - task_key: find_care_function

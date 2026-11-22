@@ -5,13 +5,16 @@ fields (score parts, evidence by column, tags, confidence rule).
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from .. import config, sql
 from ..cache import Refreshing, TTLCache
 from ..schema import (Check, Claim, Confidence, DoubleCheck, Evidence, LocationCheck, LocationValidation, Origin, Query,
-                      RecommendResponse, Recommendation, Score, ScorePart, Service)
+                      RecommendResponse, Recommendation, Score, ScorePart, Service, ServiceGroup, ServiceTerm)
 from .base import Adapter
+
+log = logging.getLogger(__name__)
 
 CONFIDENCE_RULE = ("High: trust ≥ 70 with strong/moderate evidence · Medium: trust 45–69 · Low: trust < 45 · "
                    "capped at Medium when the record's identity is not settled (possible merged record, near-duplicate "
@@ -183,6 +186,19 @@ def _load_services() -> list[Service]:
     return [Service(key=r["service_key"], label=r["service_label"], aliases=r["aliases"] or []) for r in rows]
 
 
+def _load_service_groups() -> list[ServiceGroup]:
+    groups = sql.query(f"""SELECT group_key, group_label, description, services, default_service, refine_question
+                           FROM {sql.fq('ref_service_groups')} ORDER BY sort_order""")
+    terms = sql.query(f"SELECT term, group_key, service_key FROM {sql.fq('ref_service_terms')} ORDER BY term")
+    by_group: dict[str, list[ServiceTerm]] = {}
+    for t in terms:
+        by_group.setdefault(t["group_key"], []).append(ServiceTerm(term=t["term"], service=t["service_key"]))
+    return [ServiceGroup(key=g["group_key"], label=g["group_label"], description=g["description"] or "",
+                         services=g["services"] or [], default_service=g["default_service"],
+                         refine_question=g["refine_question"], terms=by_group.get(g["group_key"], []))
+            for g in groups]
+
+
 def _load_places() -> list[str]:
     rows = sql.query(f"""
         SELECT DISTINCT initcap(lower(district)) AS d FROM {sql.fq('silver_pincode_geo')}
@@ -196,11 +212,20 @@ class FindCareAdapter(Adapter):
     def __init__(self):
         self._services = Refreshing("services", _load_services, ttl=3600,
                                     parse=lambda rows: [Service(**r) for r in rows])
+        self._groups = Refreshing("service_groups", _load_service_groups, ttl=3600,
+                                  parse=lambda rows: [ServiceGroup(**r) for r in rows])
         self._places = Refreshing("places", _load_places, ttl=3600)
         self._results = TTLCache(ttl=config.RESULT_CACHE_TTL, maxsize=256)
 
     def services(self) -> list[Service]:
         return self._services.get()
+
+    def service_groups(self) -> list[ServiceGroup]:
+        try:
+            return self._groups.get()
+        except Exception as e:  # no snapshot and the tables are missing: the app still works with specific services
+            log.warning("Service groups unavailable: %s", e)
+            return []
 
     def places(self) -> list[str]:
         return self._places.get()
@@ -208,6 +233,10 @@ class FindCareAdapter(Adapter):
     def prefetch(self) -> None:
         self._services.prefetch()
         self._places.prefetch()
+        try:
+            self._groups.prefetch()
+        except Exception as e:
+            log.warning("Service groups not loaded: %s", e)
 
     def invalidate_results(self) -> None:
         """A reviewer's Confirm / Reject changes rankings, so cached searches are dropped."""
