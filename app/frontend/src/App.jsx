@@ -7,11 +7,17 @@ import ResultCard from './components/ResultCard.jsx'
 import ResultsMap from './components/ResultsMap.jsx'
 import HowWeScore from './components/HowWeScore.jsx'
 import Planner from './components/Planner.jsx'
+import Icon from './components/Icon.jsx'
+import { Skeleton, Tabs } from './components/ui/index.js'
 
 const MODES = [
   { key: 'form', label: 'Search' },
   { key: 'chat', label: 'Chat' },
   { key: 'voice', label: 'Voice' },
+]
+const VIEWS = [
+  { key: 'find', label: 'Find care' },
+  { key: 'planner', label: 'District planner' },
 ]
 
 export default function App() {
@@ -49,30 +55,20 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <span className="logo" aria-hidden>✚</span>
+          <Icon name="logo" size="md" className="logo" />
           <div>
             <h1>Care Finder</h1>
             <p>Find the right hospital for the care you need, and see why we recommend it.</p>
           </div>
         </div>
-        <div className="view-switch" role="tablist">
-          <button role="tab" aria-selected={view === 'find'} className={view === 'find' ? 'tab active' : 'tab'} onClick={() => setView('find')}>Find care</button>
-          <button role="tab" aria-selected={view === 'planner'} className={view === 'planner' ? 'tab active' : 'tab'} onClick={() => setView('planner')}>District planner</button>
-        </div>
+        <Tabs items={VIEWS} value={view} onChange={setView} label="View" className="view-switch" />
       </header>
 
       {view === 'planner' ? <main className="planner-layout"><Planner /></main> : (
       <main className="layout">
         <section className="left">
           <div className="panel input-panel">
-            <div className="tabs" role="tablist">
-              {MODES.map((m) => (
-                <button key={m.key} role="tab" aria-selected={mode === m.key}
-                        className={mode === m.key ? 'tab active' : 'tab'} onClick={() => setMode(m.key)}>
-                  {m.label}
-                </button>
-              ))}
-            </div>
+            <Tabs items={MODES} value={mode} onChange={setMode} label="Input mode" className="input-tabs" />
             {mode === 'form' && <SearchForm services={services} places={places} loading={loading} onSearch={runSearch} />}
             {mode === 'chat' && <ChatPanel onResult={showResult} />}
             {mode === 'voice' && <VoicePanel onResult={showResult} />}
@@ -82,7 +78,7 @@ export default function App() {
 
           {result?.safety_note && (
             <div className="alert safety" role="alert">
-              <span className="alert-icon" aria-hidden>⚠</span>
+              <Icon name="warning" size="md" />
               <div><b>Emergency?</b> {result.safety_note}</div>
             </div>
           )}
@@ -108,7 +104,7 @@ export default function App() {
           )}
           {result?.notes?.map((n) => <div key={n} className="alert note">{n}</div>)}
 
-          {loading && <div className="skeletons">{[0, 1, 2].map((i) => <div key={i} className="skeleton" />)}</div>}
+          {loading && <div className="skeletons">{[0, 1, 2].map((i) => <Skeleton key={i} height={200} radius="var(--r-lg)" />)}</div>}
 
           <div className="cards">
             {!loading && results.map((r) => (

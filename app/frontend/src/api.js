@@ -1,4 +1,10 @@
+// Dev only: VITE_MOCK=1 (or empty, fail, slow) answers from src/mock.js instead of the backend.
+// `import.meta.env.DEV` is false in `npm run build`, so the mock path is dropped from the production bundle.
+const MOCK = import.meta.env.DEV && import.meta.env.VITE_MOCK
+let mock
+
 async function call(path, opts = {}) {
+  if (MOCK) { mock ??= await import('./mock.js'); return mock.handle(path, opts, MOCK) }
   const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts })
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`

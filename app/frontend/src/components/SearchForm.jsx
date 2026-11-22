@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import Icon from './Icon.jsx'
+import { Button, Combobox, Select, Slider, Switch } from './ui/index.js'
 
 const EXAMPLES = [
   { service: 'dialysis', place: 'Jaipur' },
@@ -29,48 +31,45 @@ export default function SearchForm({ services, places, loading, onSearch }) {
   return (
     <form className="search-form" onSubmit={submit}>
       <div className="form-grid">
-      <label>
-        <span>Care needed</span>
-        <select value={service} onChange={(e) => setService(e.target.value)} required>
-          <option value="">Choose a service…</option>
-          {services.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-        </select>
-      </label>
-
-      <label>
-        <span>Your location</span>
-        <div className="row">
-          <input list="places" value={place} onChange={(e) => setPlace(e.target.value)}
-                 placeholder="PIN code, city, village or district" required />
-          <button type="button" className="ghost" onClick={useMyLocation} title="Use my location">📍</button>
+        <div className="form-field">
+          <label htmlFor="sf-service">Care needed</label>
+          <Select id="sf-service" value={service} onValueChange={setService} label="Care needed"
+                  placeholder="Choose a service" options={services.map((s) => ({ value: s.key, label: s.label }))} />
         </div>
-        <datalist id="places">{places.map((p) => <option key={p} value={p} />)}</datalist>
-      </label>
+
+        <div className="form-field">
+          {/* cmdk sets its own input id, so the field is named by aria-label instead of htmlFor. */}
+          <span className="field-label" aria-hidden>Your location</span>
+          <Combobox value={place} onChange={setPlace} options={places} label="Your location"
+                    placeholder="PIN code, city, village or district" onEnter={submit}
+                    trailing={
+                      <button type="button" className="icon-btn" onClick={useMyLocation} aria-label="Use my location">
+                        <Icon name="locate" />
+                      </button>
+                    } />
+        </div>
       </div>
 
       <div className="form-grid">
-        <label>
-          <span>Search radius: <strong>{maxKm} km</strong></span>
-          <input type="range" min="10" max="300" step="5" value={maxKm} onChange={(e) => setMaxKm(+e.target.value)} />
-        </label>
-
-        <label className="inline-check">
-          <input type="checkbox" checked={publicOnly} onChange={(e) => setPublicOnly(e.target.checked)} />
-          <span>Government facilities only</span>
-        </label>
+        <div className="form-field">
+          <span className="field-label" id="sf-km">Search radius <span className="num value">{maxKm} km</span></span>
+          <Slider value={maxKm} onValueChange={setMaxKm} min={10} max={300} step={5} label="Search radius in km" />
+        </div>
+        <Switch checked={publicOnly} onCheckedChange={setPublicOnly} label="Government facilities only" />
       </div>
 
-      <button className="primary" disabled={loading || !service || !place.trim()}>
-        {loading ? 'Searching…' : 'Find facilities'}
-      </button>
+      <Button type="submit" variant="primary" size="lg" icon="search" loading={loading}
+              disabled={loading || !service || !place.trim()}>
+        Find facilities
+      </Button>
 
       <div className="examples">
-        <span className="muted">Try:</span>
+        <span className="muted">Try</span>
         {EXAMPLES.map((ex) => (
-          <button type="button" key={ex.service + ex.place} className="chip"
+          <Button key={ex.service + ex.place} size="sm" variant="secondary"
                   onClick={() => { setService(ex.service); setPlace(ex.place); onSearch({ ...ex, max_km: maxKm, top_n: 5, public_only: publicOnly }) }}>
             {labelFor(ex.service)} · {ex.place}
-          </button>
+          </Button>
         ))}
       </div>
     </form>

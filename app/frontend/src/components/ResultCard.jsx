@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import ScoreBreakdown from './ScoreBreakdown.jsx'
 import * as api from '../api.js'
+import Icon from './Icon.jsx'
+import { Badge, Button } from './ui/index.js'
 
 // ---------------------------------------------------------------------------
 // Plain-language labels
 // ---------------------------------------------------------------------------
 
 const BADGE = {
-  High: { cls: 'good', text: 'High confidence' },
-  Medium: { cls: 'ok', text: 'Medium confidence' },
-  Low: { cls: 'bad', text: 'Low confidence' },
-  Probable: { cls: 'ok', text: 'Likely · call to confirm' },
-  Unconfirmed: { cls: 'none', text: 'Unconfirmed' },
+  High: { tone: 'success', text: 'High confidence' },
+  Medium: { tone: 'warning', text: 'Medium confidence' },
+  Low: { tone: 'danger', text: 'Low confidence' },
+  Probable: { tone: 'warning', text: 'Likely · call to confirm' },
+  Unconfirmed: { tone: 'neutral', text: 'Unconfirmed' },
 }
 
 // Tags that are worth a "heads up" on the front of the card, in priority order, with plain wording.
@@ -19,7 +21,7 @@ const BADGE = {
 const HEADS_UP = [
   { tags: ['Reported not available'], text: 'A reviewer reported this service is not available here.', level: 'bad' },
   { tags: ['Identity not settled', 'Possible duplicate record', 'Possible merged record'], text: 'This record may be duplicated or mixed up with another facility.' },
-  { tags: ['Not a hospital'], text: 'Not a hospital — may be a clinic or smaller centre.' },
+  { tags: ['Not a hospital'], text: 'Not a hospital. It may be a clinic or a smaller centre.' },
   { tags: ['Location uncertain'], text: 'Map location is approximate.' },
   { tags: ['Farther option'], text: 'Farther than the usual travel time for this service.' },
 ]
@@ -65,7 +67,7 @@ const CLAIM_HELP = {
   negated: 'A negative or referral-only mention. Not counted.',
   verified: 'Recorded by a reviewer (e.g. after a phone call). Overrides what the record says for this item.',
 }
-const STATUS_ICON = { found: '✓', unknown: '?', contradicted: '✗' }
+const STATUS_ICON = { found: 'check', unknown: 'help', contradicted: 'x' }
 
 // ---------------------------------------------------------------------------
 // Detail sections
@@ -74,8 +76,8 @@ const STATUS_ICON = { found: '✓', unknown: '?', contradicted: '✗' }
 function VerifyButtons({ label, verify }) {
   return (
     <span className="verify">
-      <button className="vbtn ok" title={`Confirm: ${label}`} onClick={() => verify('confirmed')}>✓ Confirm</button>
-      <button className="vbtn no" title={`Reject: ${label}`} onClick={() => verify('rejected')}>✗ Reject</button>
+      <Button size="sm" variant="ghost" icon="check" aria-label={`Confirm: ${label}`} onClick={() => verify('confirmed')}>Confirm</Button>
+      <Button size="sm" variant="ghost" icon="x" aria-label={`Reject: ${label}`} onClick={() => verify('rejected')}>Reject</Button>
     </span>
   )
 }
@@ -86,7 +88,7 @@ function Checklist({ checks, pattern, verify }) {
     <ul className="checklist">
       {checks.map((c) => (
         <li key={c.key} className={`check check-${c.status}`}>
-          <span className="icon" aria-label={c.status}>{STATUS_ICON[c.status] || '?'}</span>
+          <span className="status-icon"><Icon name={STATUS_ICON[c.status] || 'help'} label={c.status} /></span>
           <div className="check-body">
             <div className="check-title">
               <span>{c.label}</span>
@@ -115,7 +117,7 @@ function Quotes({ rec }) {
           const quote = <q><Highlight text={c.text} pattern={rec.match_pattern} /></q>
           return (
             <li key={i} className={struck ? 'rejected' : ''}>
-              <span className="field">{c.field}</span>
+              <span className="field-tag">{c.field}</span>
               {c.claim_type !== 'direct' &&
                 <span className={`claim claim-${c.claim_type}`} title={CLAIM_HELP[c.claim_type]}>{CLAIM_LABEL[c.claim_type] || c.claim_type}</span>}
               {struck ? <s>{quote}</s> : quote}
@@ -130,7 +132,7 @@ function Quotes({ rec }) {
       {rec.evidence.length === 0 && <p className="muted small">No direct mention of this service in the record.</p>}
       <ul className="evidence">
         {rec.evidence.map((e, i) => (
-          <li key={i}><span className="field">{e.field}</span><q><Highlight text={e.text} pattern={rec.match_pattern} /></q></li>
+          <li key={i}><span className="field-tag">{e.field}</span><q><Highlight text={e.text} pattern={rec.match_pattern} /></q></li>
         ))}
         {rec.rejected_evidence.map((t, i) => (
           <li key={`r${i}`} className="rejected"><span className="claim claim-negated">not counted</span><s>{t}</s></li>
@@ -164,8 +166,8 @@ function rankReason(rec, top) {
 
 // "How solid is this pick?" (#1 only): a one-line verdict, with the double-checks behind it on request.
 function CheckRow({ c }) {
-  const result = c.still_first === true ? <span className="still">✓ Still #1</span>
-    : c.still_first === false ? <span className="moves">→ {c.winner} would be #1</span>
+  const result = c.still_first === true ? <span className="still"><Icon name="check" /> Still #1</span>
+    : c.still_first === false ? <span className="moves"><Icon name="arrowRight" /> {c.winner} would be #1</span>
     : <span className="muted">No facility passes this check</span>
   return <li><span className="check-label">{c.label}</span>{result}</li>
 }
@@ -176,10 +178,10 @@ function PickStrength({ rec }) {
   const situation = rec.double_checks.filter((c) => c.kind === 'situation')
   return (
     <div className={`pick ${solid ? 'solid' : 'shaky'}`} onClick={(e) => e.stopPropagation()}>
-      <p className="pick-line"><span aria-hidden>{solid ? '🛡' : '⚠'}</span> {rec.pick_strength_note}</p>
+      <p className="pick-line"><Icon name={solid ? 'shield' : 'warning'} /> <span>{rec.pick_strength_note}</span></p>
       {data.length > 0 && (
         <details className="pick-checks">
-          <summary>See the {data.length} double-checks</summary>
+          <summary><Icon name="chevronRight" className="chev" />See the {data.length} double-checks</summary>
           <p className="small muted">
             We re-ran the ranking {data.length} more times, each time doubting one part of the data. If #1 stays on top
             every time, it is a solid pick. If not, the facility that takes its place is the one to call second.
@@ -200,17 +202,17 @@ function PickStrength({ rec }) {
 // Location validation (notebooks/location_validation_scoring): do the record's pincode, city, district, postal
 // circle and map point agree? Its weighted agreement feeds the location part of Quality. Facilities scoring 0-2
 // never reach the app (find_care leaves them out).
-const LOC_ICON = { pass: '✓', partial: '½', fail: '✗', missing: '–' }
+const LOC_ICON = { pass: 'check', partial: 'half', fail: 'x', missing: 'minus' }
 const LOC_CLASS = { pass: 'check-found', partial: 'check-unknown', fail: 'check-contradicted', missing: 'check-unknown' }
 const LOC_LABEL = { verified_all: 'every check agrees', verified_strong: 'strong agreement', verified_partial: 'partial agreement' }
 
 function LocationBadge({ lv }) {
   if (!lv) return null
   if (lv.status !== 'scored') {
-    return <span className="badge none" title="This record has no location validation score yet.">Location not validated</span>
+    return <Badge tone="neutral" title="This record has no location validation score yet.">Location not validated</Badge>
   }
-  const cls = lv.score >= 5 ? 'good' : lv.score >= 4 ? 'ok' : 'bad'
-  return <span className={`badge ${cls}`} title={`Location checks: ${LOC_LABEL[lv.label] || lv.label}`}>Location {lv.score}/5</span>
+  const tone = lv.score >= 5 ? 'success' : lv.score >= 4 ? 'warning' : 'danger'
+  return <Badge tone={tone} title={`Location checks: ${LOC_LABEL[lv.label] || lv.label}`}>Location {lv.score}/5</Badge>
 }
 
 function LocationChecks({ lv }) {
@@ -226,7 +228,7 @@ function LocationChecks({ lv }) {
       <ul className="checklist">
         {lv.checks.map((c) => (
           <li key={c.key} className={`check ${LOC_CLASS[c.status] || 'check-unknown'}`}>
-            <span className="icon" aria-label={c.status}>{LOC_ICON[c.status] || '?'}</span>
+            <span className="status-icon"><Icon name={LOC_ICON[c.status] || 'help'} label={c.status} /></span>
             <div className="check-body">
               <div className="check-title">
                 <span>{c.label}</span>
@@ -245,7 +247,7 @@ function LocationChecks({ lv }) {
 function Section({ title, defaultOpen = false, children }) {
   return (
     <details className="section" open={defaultOpen}>
-      <summary>{title}</summary>
+      <summary><Icon name="chevronRight" className="chev" />{title}</summary>
       <div className="section-body">{children}</div>
     </details>
   )
@@ -267,7 +269,7 @@ export default function ResultCard({ rec, top, selected, onSelect, serviceKey, o
   const uniqueAddress = address.filter((v, i) => address.findIndex((w) => String(w).toLowerCase() === String(v).toLowerCase()) === i).join(', ')
 
   // Header badge: a reviewer's decision outranks the computed confidence.
-  const badge = rec.verified_service === 'rejected' ? { cls: 'bad', text: 'Reported unavailable' }
+  const badge = rec.verified_service === 'rejected' ? { tone: 'danger', text: 'Reported unavailable' }
     : BADGE[rec.confidence.label] || BADGE.Unconfirmed
 
   // Facility facts in one line: "Private hospital · 100 beds · 75 doctors"
@@ -296,9 +298,9 @@ export default function ResultCard({ rec, top, selected, onSelect, serviceKey, o
           {facts.length > 0 && <p className="facts">{facts.join(' · ')}</p>}
         </div>
         <div className="badges">
-          <span className={`badge ${badge.cls}`}>{badge.text}</span>
-          {rec.verified_service === 'confirmed' && <span className="badge good">✓ Confirmed by phone</span>}
-          {rec.is_nearest_alternative && <span className="badge info">Closest option</span>}
+          <Badge tone={badge.tone}>{badge.text}</Badge>
+          {rec.verified_service === 'confirmed' && <Badge tone="success" icon="check">Confirmed by phone</Badge>}
+          {rec.is_nearest_alternative && <Badge tone="neutral">Closest option</Badge>}
           <LocationBadge lv={rec.location_validation} />
         </div>
       </header>
@@ -306,8 +308,8 @@ export default function ResultCard({ rec, top, selected, onSelect, serviceKey, o
       <div className="stats">
         <div className="stat">
           <span className="stat-label">Travel</span>
-          <span className="stat-value">{rec.travel_min != null ? fmtMin(rec.travel_min) : rec.distance_km != null ? fmtKm(rec.distance_km) : '—'}</span>
-          <span className={`stat-sub ${beyond ? 'warn-text' : ''}`}>
+          <span className="stat-value num">{rec.travel_min != null ? fmtMin(rec.travel_min) : rec.distance_km != null ? fmtKm(rec.distance_km) : '—'}</span>
+          <span className={`stat-sub num ${beyond ? 'warn-text' : ''}`}>
             {rec.travel_min != null && rec.distance_km != null ? fmtKm(rec.distance_km) : ''}
             {rec.travel_budget_min != null && ` · ${beyond ? 'beyond' : 'within'} ${rec.travel_budget_min} min limit`}
           </span>
@@ -315,7 +317,7 @@ export default function ResultCard({ rec, top, selected, onSelect, serviceKey, o
         {total > 0 ? (
           <div className="stat">
             <span className="stat-label">Key items found</span>
-            <span className="stat-value">{found} <span className="of">of {total}</span></span>
+            <span className="stat-value num">{found} <span className="of">of {total}</span></span>
             <span className="meter" aria-hidden>
               {rec.checks.map((c) => <i key={c.key} className={`m-${c.status}`} />)}
             </span>
@@ -329,7 +331,7 @@ export default function ResultCard({ rec, top, selected, onSelect, serviceKey, o
         )}
         <div className="stat">
           <span className="stat-label">{rec.score.mode === 'quality_first' ? 'Quality score' : 'Match score'}</span>
-          <span className="stat-value">{Math.round(rec.score.match)} <span className="of">/ 100</span></span>
+          <span className="stat-value num">{Math.round(rec.score.match)} <span className="of">/ 100</span></span>
           <span className="meter bar-meter" aria-hidden><i style={{ width: `${Math.max(0, Math.min(100, rec.score.match))}%` }} /></span>
         </div>
       </div>
@@ -339,7 +341,7 @@ export default function ResultCard({ rec, top, selected, onSelect, serviceKey, o
       )}
 
       {rec.pick_strength_note && <PickStrength rec={rec} />}
-      {rec.tip_note && <p className="tip"><span aria-hidden>💡</span> {rec.tip_note}</p>}
+      {rec.tip_note && <p className="tip"><Icon name="tip" /> <span>{rec.tip_note}</span></p>}
 
       {headsUp.length > 0 && (
         <ul className={`heads-up ${headsUp.some((h) => h.level === 'bad') ? 'bad' : ''}`}>
@@ -349,20 +351,21 @@ export default function ResultCard({ rec, top, selected, onSelect, serviceKey, o
       )}
 
       {rec.call_to_confirm && (
-        <p className="ask"><span aria-hidden>💬</span> <b>Before you go:</b> {rec.call_to_confirm}</p>
+        <p className="ask"><Icon name="ask" /> <span><b>Before you go:</b> {rec.call_to_confirm}</span></p>
       )}
 
       <div className="actions" onClick={stop}>
         {rec.phone
-          ? <a className="btn primary-btn" href={telHref(rec.phone)}>📞 Call {rec.phone}</a>
-          : <span className="btn disabled">No phone listed</span>}
-        {rec.website && <a className="btn" href={withScheme(rec.website)} target="_blank" rel="noreferrer">Website</a>}
+          ? <Button as="a" variant="primary" icon="phone" href={telHref(rec.phone)}>Call {rec.phone}</Button>
+          : <span className="muted small">No phone listed</span>}
+        {rec.website && <Button as="a" icon="globe" href={withScheme(rec.website)} target="_blank" rel="noreferrer">Website</Button>}
         {rec.lat != null && (
-          <a className="btn" href={`https://www.google.com/maps/dir/?api=1&destination=${rec.lat},${rec.lon}`} target="_blank" rel="noreferrer">Directions</a>
+          <Button as="a" icon="directions" href={`https://www.google.com/maps/dir/?api=1&destination=${rec.lat},${rec.lon}`} target="_blank" rel="noreferrer">Directions</Button>
         )}
-        <button className="details-toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
-          {open ? 'Hide details' : 'Details'} <span aria-hidden>{open ? '▴' : '▾'}</span>
-        </button>
+        <Button variant="ghost" className="details-toggle" onClick={() => setOpen(!open)} aria-expanded={open}
+                iconRight="chevronDown">
+          {open ? 'Hide details' : 'Details'}
+        </Button>
       </div>
 
       {open && (
@@ -411,8 +414,8 @@ export default function ResultCard({ rec, top, selected, onSelect, serviceKey, o
             <Section title="Record what you learned by phone">
               <p className="small muted">Saved for everyone and reflected the next time this search runs.</p>
               <div className="verify-service">
-                <button className="vbtn ok" onClick={() => verify('service', 'confirmed', 'they offer this service')}>✓ They offer this service</button>
-                <button className="vbtn no" onClick={() => verify('service', 'rejected', 'they do not offer this service')}>✗ Not available</button>
+                <Button size="sm" icon="check" onClick={() => verify('service', 'confirmed', 'they offer this service')}>They offer this service</Button>
+                <Button size="sm" icon="x" onClick={() => verify('service', 'rejected', 'they do not offer this service')}>Not available</Button>
               </div>
             </Section>
           )}
@@ -420,14 +423,14 @@ export default function ResultCard({ rec, top, selected, onSelect, serviceKey, o
           {(rec.sources.length > 0 || rec.email || rec.facebook) && (
             <Section title="Sources and other contacts">
               <div className="sources">
-                {rec.email && <a href={`mailto:${rec.email}`}>✉ {rec.email}</a>}
+                {rec.email && <a href={`mailto:${rec.email}`}><Icon name="mail" /> {rec.email}</a>}
                 {rec.facebook && <a href={withScheme(rec.facebook)} target="_blank" rel="noreferrer">Facebook</a>}
                 {rec.sources.filter((s, i, all) => all.findIndex((t) => hostOf(t) === hostOf(s)) === i).slice(0, 8).map((s) => (
                   <a key={s} href={s} target="_blank" rel="noreferrer">{hostOf(s)}</a>
                 ))}
               </div>
               <details className="raw">
-                <summary>Plain-text explanation</summary>
+                <summary><Icon name="chevronRight" className="chev" />Plain-text explanation</summary>
                 <p>{rec.why}</p>
                 <p className="mono">{rec.how}</p>
               </details>

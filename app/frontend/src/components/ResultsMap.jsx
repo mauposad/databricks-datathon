@@ -4,6 +4,9 @@ import L from 'leaflet'
 
 const INDIA = [22.5, 79]
 
+// Map colours live in styles/tokens.css; read them here so no colour is typed in JS.
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+
 const numberIcon = (n, active) => L.divIcon({
   className: '',
   html: `<div class="pin ${active ? 'active' : ''}">${n}</div>`,
@@ -43,7 +46,7 @@ export default function ResultsMap({ result, selected, onSelect }) {
         {origin?.lat != null && (
           <>
             <Circle center={[origin.lat, origin.lon]} radius={result.query.max_km * 1000}
-                    pathOptions={{ color: '#2563eb', weight: 1, fillOpacity: 0.04 }} />
+                    pathOptions={{ color: cssVar('--map-radius'), weight: 1, fillOpacity: 0.04 }} />
             <Marker position={[origin.lat, origin.lon]} icon={originIcon}>
               <Popup>Searched from: {origin.label}</Popup>
             </Marker>
@@ -54,8 +57,8 @@ export default function ResultsMap({ result, selected, onSelect }) {
                   eventHandlers={{ click: () => onSelect(r.id) }} zIndexOffset={r.id === selected ? 1000 : 0}>
             <Popup>
               <strong>{r.rank}. {r.name}</strong><br />
-              {r.travel_min != null ? `~${r.travel_min} min · ` : ''}{r.distance_km} km<br />
-              <span style={{ color: '#666' }}>{r.confidence.label === 'Probable' ? 'Likely · call to confirm' : `${r.confidence.label} confidence`}</span>
+              <span className="num">{r.travel_min != null ? `~${r.travel_min} min · ` : ''}{r.distance_km} km</span><br />
+              <span className="muted">{r.confidence.label === 'Probable' ? 'Likely · call to confirm' : `${r.confidence.label} confidence`}</span>
             </Popup>
           </Marker>
         ))}
@@ -63,7 +66,7 @@ export default function ResultsMap({ result, selected, onSelect }) {
         <FlyTo result={result} selected={selected} />
       </MapContainer>
       {result && (
-        <div className="map-legend">
+        <div className="map-legend num">
           <span><span className="origin-pin inline" /> You searched here</span>
           <span><span className="pin inline">1</span> Ranked option</span>
           <span>Circle: {result.query.max_km} km</span>

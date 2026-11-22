@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import * as api from '../api.js'
 import { canListen, canSpeak, listen, speak, stopSpeaking } from '../speech.js'
+import Icon from './Icon.jsx'
+import { Button, Switch } from './ui/index.js'
 
 const GREETING = { role: 'assistant', content: 'Tell me what care you need and where. For example: "My father needs dialysis, we are in Jaipur".' }
 
@@ -51,7 +53,7 @@ export default function ChatPanel({ onResult, voiceFirst = false }) {
           <div key={i} className={`msg ${m.role}`}>
             <div className="bubble">{m.content}</div>
             {m.role === 'assistant' && i > 0 && canSpeak && (
-              <button className="link small" onClick={() => speak(m.content)}>🔊 Read aloud</button>
+              <Button variant="ghost" size="sm" icon="speaker" onClick={() => speak(m.content)}>Read aloud</Button>
             )}
             {m.meta && <div className="meta">{m.meta}</div>}
           </div>
@@ -62,28 +64,26 @@ export default function ChatPanel({ onResult, voiceFirst = false }) {
 
       {voiceFirst ? (
         <div className="voice-controls">
-          <button className={`mic big ${listening ? 'on' : ''}`} onClick={toggleMic} disabled={!canListen || busy}
+          <button type="button" className={`mic big ${listening ? 'on' : ''}`} onClick={toggleMic} disabled={!canListen || busy}
                   aria-label={listening ? 'Stop listening' : 'Start talking'}>
-            {listening ? '■' : '🎤'}
+            <Icon name={listening ? 'stop' : 'mic'} size="xl" />
           </button>
           <div className="muted">{!canListen ? 'Voice input needs Chrome, Edge or Safari.' : listening ? (input || 'Listening…') : 'Tap and say what you need and where.'}</div>
         </div>
       ) : (
         <form className="chat-input" onSubmit={(e) => { e.preventDefault(); send(input) }}>
           {canListen && (
-            <button type="button" className={`mic ${listening ? 'on' : ''}`} onClick={toggleMic} title="Speak">
-              {listening ? '■' : '🎤'}
+            <button type="button" className={`icon-btn mic ${listening ? 'on' : ''}`} onClick={toggleMic}
+                    aria-label={listening ? 'Stop listening' : 'Speak'}>
+              <Icon name={listening ? 'stop' : 'mic'} />
             </button>
           )}
-          <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="e.g. NICU near Patna within 100 km" />
-          <button className="primary" disabled={busy || !input.trim()}>Send</button>
+          <input className="field" value={input} onChange={(e) => setInput(e.target.value)} aria-label="Message"
+                 placeholder="e.g. NICU near Patna within 100 km" />
+          <Button type="submit" variant="primary" icon="send" disabled={busy || !input.trim()}>Send</Button>
         </form>
       )}
-      {canSpeak && (
-        <label className="auto-speak">
-          <input type="checkbox" checked={autoSpeak} onChange={(e) => setAutoSpeak(e.target.checked)} /> Read answers aloud
-        </label>
-      )}
+      {canSpeak && <Switch checked={autoSpeak} onCheckedChange={setAutoSpeak} label="Read answers aloud" className="auto-speak" />}
     </div>
   )
 }
